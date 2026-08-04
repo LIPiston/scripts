@@ -1,8 +1,16 @@
 # Zed 经典右键菜单修复工具
 
-用于解决 Windows 11 关闭初级菜单/新版右键菜单后，Zed 的「用 Zed 打开」只在初级菜单里注册、经典 Win10 风格菜单里丢失的问题。
+用于解决 Windows 11 关闭初级菜单/新版右键菜单后，Zed 的「用 Zed 打开」只在一级菜单里注册、经典 Win10 风格二级菜单（「显示更多选项」）里丢失的问题。
 
-这个工具会读取当前注册表里已有的右键菜单候选项，并允许选择把有普通 `command` 的项目复制到经典二级菜单；同时内置了 Zed 的一键修复，会自动检测 Zed i18n / Zed 的安装路径并写入经典菜单。
+这个工具的核心流程是：
+
+1. 列出当前可读到的一级右键菜单内容。
+2. 让用户选择要放到二级/经典菜单的项目。
+3. 对有普通 `command` 的项目自动复制到二级菜单。
+4. 对只有 `ExplorerCommandHandler` / COM handler 的项目只列出并说明不可直接复制。
+5. 提供删除本工具创建的二级菜单项。
+
+同时内置 Zed 一键修复，会自动检测 Zed i18n / Zed 的安装路径并补一个普通 command。
 
 ## 推荐用法
 
@@ -12,15 +20,21 @@
 run-zed-classic-context-menu.bat
 ```
 
-然后选择：
+主菜单：
 
 ```text
 [A] 自动把 Zed 放进经典二级菜单（推荐）
+[L] 列出所有一级菜单候选项
+[C] 选择一级菜单项，放入二级/经典菜单
+[D] 删除本工具创建的二级/经典菜单项
+[R] 删除本工具创建的 Zed 经典菜单
+[Q] 退出
 ```
 
-或者直接在 PowerShell 中运行：
+## 直接安装 Zed 二级菜单
 
 ```powershell
+cd D:\LIPis\Documents\code\scripts\zed-classic-context-menu
 Set-ExecutionPolicy -Scope Process Bypass -Force
 .\zed-classic-context-menu.ps1 -InstallZed
 ```
@@ -31,7 +45,7 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 .\zed-classic-context-menu.ps1 -InstallZed -ZedExe "$env:LOCALAPPDATA\Programs\Zed i18n\Zed.exe"
 ```
 
-## 写入内容
+## Zed 写入内容
 
 只写当前用户注册表，不需要管理员权限：
 
@@ -48,32 +62,46 @@ HKCU\Software\Classes\Directory\Background\shell\ZedClassicOpenHere
 "Zed.exe" "%V"   # 文件夹空白处
 ```
 
-## 读取/选择其它菜单项
+## 读取/选择一级菜单
 
-交互菜单里的：
+交互菜单里的 `[L]` 会列出可读到的一级菜单候选项，包括：
 
-```text
-[L] 读取并列出当前右键菜单候选项
-[C] 从候选项中选择一个有 command 的项目复制到经典菜单
+- 普通 `shell\...\command` 菜单项：标记为「可复制」。
+- `shellex\ContextMenuHandlers` 菜单项：标记为「不可直接复制」。
+- `ExplorerCommandHandler` / PackagedCom 现代菜单项：标记为「不可直接复制」。
+
+选择 `[C]` 后输入编号：
+
+- 如果该项有普通 `command`，工具会复制到对应的二级/经典菜单位置。
+- 如果该项只有 COM handler，工具会拒绝迁移并解释原因，避免写出坏菜单。
+
+## 删除二级菜单
+
+删除所有由本工具创建的二级/经典菜单项：
+
+```powershell
+.\zed-classic-context-menu.ps1 -RemoveCreated
 ```
 
-说明：
-
-- 普通 `shell\...\command` 项可以复制。
-- 只有 `ExplorerCommandHandler` 的 Win11 初级菜单项通常不能直接复制到经典菜单，因为它不是普通命令行；Zed 推荐用内置一键修复补一个普通 command。
-
-## 卸载
-
-交互菜单选择 `[R]`，或运行：
+只删除 Zed 内置修复创建的三项：
 
 ```powershell
 .\zed-classic-context-menu.ps1 -RemoveZed
+```
+
+交互菜单也提供：
+
+```text
+[D] 删除本工具创建的二级/经典菜单项
+[R] 删除本工具创建的 Zed 经典菜单
 ```
 
 ## 非交互参数
 
 ```powershell
 .\zed-classic-context-menu.ps1 -ListOnly
+.\zed-classic-context-menu.ps1 -CopyId 12
 .\zed-classic-context-menu.ps1 -InstallZed
 .\zed-classic-context-menu.ps1 -RemoveZed
+.\zed-classic-context-menu.ps1 -RemoveCreated
 ```
