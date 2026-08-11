@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # 作者 LIPiston
-# 作用 启动或进入持久化 Hermes tmux 会话。
-# - Windows：在 tmux 中先运行 PowerShell，再由 PowerShell 从用户主目录启动 Hermes。
-# - 其他系统：在 tmux 中直接从用户主目录启动 Hermes。
+# 作用 启动或进入持久化 Hermes TUI tmux 会话。
+# - Windows：在 tmux 中先运行 PowerShell，再由 PowerShell 从用户主目录启动 Hermes TUI。
+# - 其他系统：在 tmux 中直接从用户主目录启动 Hermes TUI。
 # - 如果 tmux 会话 hermesK 已存在：直接进入该会话。
 
 _hermesK_is_windows() {
@@ -37,16 +37,16 @@ _hermesK_create_session() {
             windows_start_dir="$start_dir"
         fi
 
-        # tmux 先进入真实 Windows 主目录，再启动 PowerShell，并由 PowerShell 运行 Hermes。
+        # tmux 先进入真实 Windows 主目录，再启动 PowerShell，并由 PowerShell 运行 Hermes TUI。
         tmux new-session -d -s "$session" -c "$windows_start_dir" \
-            powershell.exe -NoLogo -NoProfile -NoExit -Command hermes
+            powershell.exe -NoLogo -NoProfile -NoExit -Command 'hermes --tui'
     else
         if ! command -v hermes >/dev/null 2>&1; then
             printf 'hermesK: hermes not found in PATH\n' >&2
             return 127
         fi
 
-        tmux new-session -d -s "$session" -c "$start_dir" hermes
+        tmux new-session -d -s "$session" -c "$start_dir" hermes --tui
     fi
 }
 
