@@ -12,14 +12,12 @@ hermesK
 
 行为：
 
-- 自动检测当前是否为 Windows Git Bash/MSYS/Cygwin 环境。
-- Windows：先把 Git Bash 的 `/c/Users/...` 转换为真实 Windows 路径，再让 tmux 在该目录启动 `powershell.exe` 并运行 `hermes --tui`。
-- Linux/macOS：在 tmux 会话中直接从用户主目录运行 `hermes --tui`。
+- 所有系统一致：在 tmux 会话 `hermesK` 中从用户主目录直接运行 `hermes --tui`。
+- Windows 使用原生 tmux（WinGet 包 `marlocarlo.psmux`）时，命令必须整体作为单个参数传给 tmux，因为 psmux 只把第一个参数当命令；`-c` 传 POSIX 路径 `/c/Users/...` 即可，MSYS 会自动转换为 Windows 路径，无需 PowerShell 或 cygpath 中转。
 - 如果 tmux 会话 `hermesK` 已存在：直接进入该会话，不重复启动 Hermes。
 - 如果当前已经在 tmux 内：切换到 `hermesK` 会话。
 - 如果当前不在 tmux 内：附加到 `hermesK` 会话。
-
-Windows 使用 PowerShell 启动，是为了避免 Git Bash/MSYS 在启动 Hermes TUI 时错误转换 Windows 盘符路径，产生类似 `C:\\c`、`D:\\d` 之类的错误工作目录或垃圾目录。
+- Hermes 退出后窗口与会话随之关闭，下次运行自动重建。
 
 ## 依赖
 
@@ -27,10 +25,6 @@ Windows 使用 PowerShell 启动，是为了避免 Git Bash/MSYS 在启动 Herme
 
 - `tmux`
 - `hermes`
-
-Windows 还需要：
-
-- `powershell.exe`（Windows PowerShell 5.1 即可）
 
 ## 文件
 
@@ -97,8 +91,10 @@ type hermesK
 grep -F -- '--tui' /d/LIPis/Documents/code/scripts/hermesK/hermesK.sh
 ```
 
-检查 Windows 检测结果：
+## 迁移
+
+旧版本创建的 `hermesK` 会话可能没有启用 TUI（例如早期版本直接运行 `hermes`）。`hermesK` 不会重建已存在的会话，升级后请先删除旧会话，让下一次运行使用新命令：
 
 ```bash
-_hermesK_is_windows && echo Windows || echo POSIX
+tmux kill-session -t hermesK
 ```

@@ -1,0 +1,2 @@
+# 所有脚本统一 LF 行尾，避免 Windows checkout 得到 CRLF
+*.sh text eol=lf
