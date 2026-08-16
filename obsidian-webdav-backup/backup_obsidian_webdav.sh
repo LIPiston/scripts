@@ -1,59 +1,48 @@
 #!/usr/bin/env bash
-# Backup a local vault-git working tree to WebDAV, excluding Git metadata.
-# Configuration is read from the adjacent .env file.
+# Obsidian vault-git -> WebDAV 覆盖备份
+#
+# 使用前只需修改下面“用户配置区”的占位符。
+# 不使用 .env，脚本可直接放到 GitHub。
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+# ========================= 用户配置区 =========================
+# starxn 上已经 clone 的 vault-git 工作区路径
+VAULT_GIT_DIR="/root/path/to/vault-git"
+
+# Gitea HTTPS Clone URL（不要填本地路径）
+GIT_REMOTE="https://gitea.example.com/USERNAME/vault-git.git"
+GIT_USERNAME="YOUR_GITEA_USERNAME"
+GIT_PASSWORD="YOUR_GITEA_PASSWORD_OR_ACCESS_TOKEN"
+
+# true：验证后拉取最新内容；false：只验证，不拉取
+GIT_PULL="true"
+
+# WebDAV 根地址（不要以 / 结尾）
+WEBDAV_URL="https://webdav.example.com/dav"
+WEBDAV_REMOTE_DIR="obsidian-vault"
+WEBDAV_USER="YOUR_WEBDAV_USERNAME"
+WEBDAV_PASSWORD="YOUR_WEBDAV_PASSWORD"
+# =============================================================
+
 LOG_PREFIX='[obsidian-webdav-backup]'
+CURL_BIN="curl"
+GIT_BIN="git"
 
 log() { printf '%s %s\n' "$LOG_PREFIX" "$*"; }
 die() { printf '%s ERROR: %s\n' "$LOG_PREFIX" "$*" >&2; exit 1; }
 
-[[ -r "$ENV_FILE" ]] || die "配置文件不存在或不可读：$ENV_FILE"
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-
-: "${VAULT_GIT_DIR:?请在 .env 设置 VAULT_GIT_DIR}"
-: "${WEBDAV_URL:?请在 .env 设置 WEBDAV_URL}"
-: "${WEBDAV_USER:?请在 .env 设置 WEBDAV_USER}"
-: "${WEBDAV_PASSWORD:?请在 .env 设置 WEBDAV_PASSWORD}"
-WEBDAV_REMOTE_DIR="${WEBDAV_REMOTE_DIR:-obsidian-vault}"
-CURL_BIN="${CURL_BIN:-curl}"
-GIT_BIN="${GIT_BIN:-git}"
-GIT_PULL="${GIT_PULL:-true}"
-: "${GIT_REMOTE:?请在 .env 设置 GIT_REMOTE}"
-: "${GIT_USERNAME:?请在 .env 设置 GIT_USERNAME}"
-: "${GIT_PASSWORD:?请在 .env 设置 GIT_PASSWORD}"
+for value_name in VAULT_GIT_DIR GIT_REMOTE GIT_USERNAME GIT_PASSWORD WEBDAV_URL WEBDAV_USER WEBDAV_PASSWORD; do
+  value="${!value_name}"
+  [[ -n "$value" && "$value" != *YOUR_* && "$value" != *CHANGE_ME* && "$value" != */path/to/* ]] || \
+    die "请先修改脚本开头的占位符：$value_name"
+done
 
 [[ -d "$VAULT_GIT_DIR" ]] || die "源目录不存在：$VAULT_GIT_DIR"
 [[ -d "$VAULT_GIT_DIR/.git" ]] || die "源目录不是 Git 仓库：$VAULT_GIT_DIR"
-command -v "$CURL_BIN" >/dev/null 2>&1 || die "找不到 curl：$CURL_BIN"
-command -v "$GIT_BIN" >/dev/null 2>&1 || die "找不到 git：$GIT_BIN"
-
-# Validate Gitea credentials and optionally refresh the working tree before backup.
-# GIT_TERMINAL_PROMPT=0 guarantees cron never hangs waiting for a password.
-git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
-if [[ "$GIT_PULL" == "true" ]]; then
-  log "验证 Gitea 凭据并拉取最新仓库内容"
-  if ! (cd "$VAULT_GIT_DIR" && \
-    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
-      ls-remote "$git_auth_url" HEAD >/dev/null); then
-    die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
-  fi
-  if ! (cd "$VAULT_GIT_DIR" && \
-    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
-      pull --ff-only "$git_auth_url" HEAD); then
-    die "Gitea git pull 失败，已停止备份"
-  fi
-else
-  log "已跳过 Gitea pull（GIT_PULL=$GIT_PULL），但仍验证凭据"
-  GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
-    ls-remote "$git_auth_url" HEAD >/dev/null || \
-    die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
-fi
+command -v "$CURL_BIN" >/dev/null 2>&1 || die "找不到 curl"
+command -v "$GIT_BIN" >/dev/null 2>&1 || die "找不到 git"
 
 # Prevent overlapping daily runs.
 LOCK_DIR="${TMPDIR:-/tmp}/obsidian-webdav-backup.lock"
@@ -62,7 +51,27 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-# Upload one file, creating its parent collection first.
+# 将凭据临时放入 URL，仅传给 git，不打印到日志。
+git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
+
+# Validate Gitea credentials and optionally refresh the working tree.
+# GIT_TERMINAL_PROMPT=0 防止 cron 因等待密码卡住。
+log "验证 Gitea 凭据"
+if ! (cd "$VAULT_GIT_DIR" && \
+  GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
+    ls-remote "$git_auth_url" HEAD >/dev/null); then
+  die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
+fi
+
+if [[ "$GIT_PULL" == "true" ]]; then
+  log "拉取 Gitea 最新内容"
+  if ! (cd "$VAULT_GIT_DIR" && \
+    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
+      pull --ff-only "$git_auth_url" HEAD); then
+    die "Gitea git pull 失败，已停止备份"
+  fi
+fi
+
 webdav_request() {
   "$CURL_BIN" --fail --silent --show-error --retry 3 --retry-delay 2 \
     --user "$WEBDAV_USER:$WEBDAV_PASSWORD" "$@"
@@ -70,7 +79,7 @@ webdav_request() {
 
 remote_path() {
   local rel="$1"
-  printf '%s/%s' "${WEBDAV_URL%/}" "${WEBDAV_REMOTE_DIR#/}/"${rel}
+  printf '%s/%s' "${WEBDAV_URL%/}" "${WEBDAV_REMOTE_DIR#/}/$rel"
 }
 
 mkdir_remote_path() {
@@ -79,7 +88,6 @@ mkdir_remote_path() {
   while IFS= read -r part; do
     [[ -z "$part" ]] && continue
     path="${path:+$path/}$part"
-    # MKCOL 405 means the collection already exists; accept it.
     if ! webdav_request -X MKCOL "$(remote_path "$path")" >/dev/null 2>&1; then
       local code
       code="$("$CURL_BIN" --silent --output /dev/null --write-out '%{http_code}' \
@@ -89,7 +97,6 @@ mkdir_remote_path() {
   done < <(printf '%s' "$rel_dir" | tr '/' '\n')
 }
 
-# Collect regular files and directories without copying .git or temporary files.
 mapfile -d '' FILES < <(cd "$VAULT_GIT_DIR" && find . -path './.git' -prune -o -type f -print0)
 mapfile -d '' DIRS < <(cd "$VAULT_GIT_DIR" && find . -path './.git' -prune -o -type d -print0)
 
