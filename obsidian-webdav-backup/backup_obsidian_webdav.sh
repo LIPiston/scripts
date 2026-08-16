@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 # Obsidian vault-git -> WebDAV 覆盖备份
 # 使用前只需修改下面“用户配置区”的占位符。
+# GitHub 公開版：仅保留占位符，不包含真实凭据。
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
 # ========================= 用户配置区 =========================
-VAULT_GIT_DIR="/root/path/to/vault-git"
+VAULT_GIT_DIR="/opt/obsidian"
 
-# Git 仓库 HTTPS Clone URL；也支持 SSH URL，但 SSH 不使用用户名/密码。
-GIT_REMOTE="https://gitea.example.com/USERNAME/vault-git.git"
+# Git 仓库 HTTPS Clone URL；HTTPS 使用用户名密码，SSH 使用 SSH 密钥。
+GIT_REMOTE="https://git.example.com/USERNAME/vault.git"
 GIT_USERNAME="YOUR_GIT_USERNAME"
 GIT_PASSWORD="YOUR_GIT_PASSWORD_OR_ACCESS_TOKEN"
 GIT_PULL="true"
 
-WEBDAV_URL="https://webdav.example.com/dav"
+WEBDAV_URL="https://files.example.com/dav"
 WEBDAV_REMOTE_DIR="obsidian-vault"
 WEBDAV_USER="YOUR_WEBDAV_USERNAME"
 WEBDAV_PASSWORD="YOUR_WEBDAV_PASSWORD"
@@ -44,15 +45,26 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-# 仅 HTTPS Git URL 使用用户名/密码；不要把 HTTPS URL 交给 ssh。
+# HTTPS Git 使用临时 askpass，不把密码放进 remote URL、进程参数或 Git 配置。
+askpass_file="$(mktemp)"
+chmod 700 "$askpass_file"
+cat > "$askpass_file" <<'ASKPASS'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' "$GIT_USERNAME" ;;
+  *Password*) printf '%s\n' "$GIT_PASSWORD" ;;
+  *) printf '\n' ;;
+esac
+ASKPASS
+trap 'rm -f "$askpass_file"; rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+
 case "$GIT_REMOTE" in
   https://*|http://*)
-    git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
-    git_ls_remote=("$GIT_BIN" -c credential.helper= ls-remote "$git_auth_url" HEAD)
-    git_pull=("$GIT_BIN" -c credential.helper= pull --ff-only "$git_auth_url" HEAD)
+    git_ls_remote=("$GIT_BIN" -c credential.helper= ls-remote "$GIT_REMOTE" HEAD)
+    git_pull=("$GIT_BIN" -c credential.helper= pull --ff-only "$GIT_REMOTE" HEAD)
     ;;
   git@*|ssh://*)
-    log "检测到 SSH Git 地址，使用 SSH 密钥验证（忽略 GIT_USERNAME/GIT_PASSWORD）"
+    log "检测到 SSH Git 地址，使用 SSH 密钥验证"
     git_ls_remote=("$GIT_BIN" ls-remote "$GIT_REMOTE" HEAD)
     git_pull=("$GIT_BIN" pull --ff-only "$GIT_REMOTE" HEAD)
     ;;
@@ -62,13 +74,13 @@ case "$GIT_REMOTE" in
 esac
 
 log "验证 Git 凭据"
-if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 "${git_ls_remote[@]}" >/dev/null); then
+if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$askpass_file" "${git_ls_remote[@]}" >/dev/null); then
   die "Git 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD；若使用 SSH 地址，请检查 SSH 密钥"
 fi
 
 if [[ "$GIT_PULL" == "true" ]]; then
   log "拉取 Git 最新内容"
-  if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 "${git_pull[@]}"); then
+  if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$askpass_file" "${git_pull[@]}"); then
     die "git pull 失败，已停止备份"
   fi
 fi
