@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
 # Obsidian vault-git -> WebDAV 覆盖备份
-#
 # 使用前只需修改下面“用户配置区”的占位符。
-# 不使用 .env，脚本可直接放到 GitHub。
 
 set -Eeuo pipefail
 IFS=$'\n\t'
 
 # ========================= 用户配置区 =========================
-# starxn 上已经 clone 的 vault-git 工作区路径
 VAULT_GIT_DIR="/root/path/to/vault-git"
 
-# Gitea HTTPS Clone URL（不要填本地路径）
+# Git 仓库 HTTPS Clone URL；也支持 SSH URL，但 SSH 不使用用户名/密码。
 GIT_REMOTE="https://gitea.example.com/USERNAME/vault-git.git"
-GIT_USERNAME="YOUR_GITEA_USERNAME"
-GIT_PASSWORD="YOUR_GITEA_PASSWORD_OR_ACCESS_TOKEN"
-
-# true：验证后拉取最新内容；false：只验证，不拉取
+GIT_USERNAME="YOUR_GIT_USERNAME"
+GIT_PASSWORD="YOUR_GIT_PASSWORD_OR_ACCESS_TOKEN"
 GIT_PULL="true"
 
-# WebDAV 根地址（不要以 / 结尾）
 WEBDAV_URL="https://webdav.example.com/dav"
 WEBDAV_REMOTE_DIR="obsidian-vault"
 WEBDAV_USER="YOUR_WEBDAV_USERNAME"
@@ -44,31 +38,38 @@ done
 command -v "$CURL_BIN" >/dev/null 2>&1 || die "找不到 curl"
 command -v "$GIT_BIN" >/dev/null 2>&1 || die "找不到 git"
 
-# Prevent overlapping daily runs.
 LOCK_DIR="${TMPDIR:-/tmp}/obsidian-webdav-backup.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   die "已有另一个备份进程运行中（锁目录：$LOCK_DIR）"
 fi
 trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
 
-# 将凭据临时放入 URL，仅传给 git，不打印到日志。
-git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
+# 仅 HTTPS Git URL 使用用户名/密码；不要把 HTTPS URL 交给 ssh。
+case "$GIT_REMOTE" in
+  https://*|http://*)
+    git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
+    git_ls_remote=("$GIT_BIN" -c credential.helper= ls-remote "$git_auth_url" HEAD)
+    git_pull=("$GIT_BIN" -c credential.helper= pull --ff-only "$git_auth_url" HEAD)
+    ;;
+  git@*|ssh://*)
+    log "检测到 SSH Git 地址，使用 SSH 密钥验证（忽略 GIT_USERNAME/GIT_PASSWORD）"
+    git_ls_remote=("$GIT_BIN" ls-remote "$GIT_REMOTE" HEAD)
+    git_pull=("$GIT_BIN" pull --ff-only "$GIT_REMOTE" HEAD)
+    ;;
+  *)
+    die "不支持的 GIT_REMOTE 格式：请使用 https://、git@ 或 ssh://"
+    ;;
+esac
 
-# Validate Gitea credentials and optionally refresh the working tree.
-# GIT_TERMINAL_PROMPT=0 防止 cron 因等待密码卡住。
-log "验证 Gitea 凭据"
-if ! (cd "$VAULT_GIT_DIR" && \
-  GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
-    ls-remote "$git_auth_url" HEAD >/dev/null); then
-  die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
+log "验证 Git 凭据"
+if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 "${git_ls_remote[@]}" >/dev/null); then
+  die "Git 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD；若使用 SSH 地址，请检查 SSH 密钥"
 fi
 
 if [[ "$GIT_PULL" == "true" ]]; then
-  log "拉取 Gitea 最新内容"
-  if ! (cd "$VAULT_GIT_DIR" && \
-    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
-      pull --ff-only "$git_auth_url" HEAD); then
-    die "Gitea git pull 失败，已停止备份"
+  log "拉取 Git 最新内容"
+  if ! (cd "$VAULT_GIT_DIR" && GIT_TERMINAL_PROMPT=0 "${git_pull[@]}"); then
+    die "git pull 失败，已停止备份"
   fi
 fi
 
@@ -92,7 +93,7 @@ mkdir_remote_path() {
       local code
       code="$("$CURL_BIN" --silent --output /dev/null --write-out '%{http_code}' \
         --user "$WEBDAV_USER:$WEBDAV_PASSWORD" -X MKCOL "$(remote_path "$path")")"
-      [[ "$code" == 405 || "$code" == 409 ]] || die "无法创建 WebDAV 目录：$path（HTTP $code）"
+      [[ "$code" == "405" || "$code" == "409" ]] || die "无法创建 WebDAV 目录：$path（HTTP $code）"
     fi
   done < <(printf '%s' "$rel_dir" | tr '/' '\n')
 }
