@@ -22,10 +22,38 @@ source "$ENV_FILE"
 : "${WEBDAV_PASSWORD:?请在 .env 设置 WEBDAV_PASSWORD}"
 WEBDAV_REMOTE_DIR="${WEBDAV_REMOTE_DIR:-obsidian-vault}"
 CURL_BIN="${CURL_BIN:-curl}"
+GIT_BIN="${GIT_BIN:-git}"
+GIT_PULL="${GIT_PULL:-true}"
+: "${GIT_REMOTE:?请在 .env 设置 GIT_REMOTE}"
+: "${GIT_USERNAME:?请在 .env 设置 GIT_USERNAME}"
+: "${GIT_PASSWORD:?请在 .env 设置 GIT_PASSWORD}"
 
 [[ -d "$VAULT_GIT_DIR" ]] || die "源目录不存在：$VAULT_GIT_DIR"
 [[ -d "$VAULT_GIT_DIR/.git" ]] || die "源目录不是 Git 仓库：$VAULT_GIT_DIR"
 command -v "$CURL_BIN" >/dev/null 2>&1 || die "找不到 curl：$CURL_BIN"
+command -v "$GIT_BIN" >/dev/null 2>&1 || die "找不到 git：$GIT_BIN"
+
+# Validate Gitea credentials and optionally refresh the working tree before backup.
+# GIT_TERMINAL_PROMPT=0 guarantees cron never hangs waiting for a password.
+git_auth_url="${GIT_REMOTE/\/\//@${GIT_USERNAME}:$GIT_PASSWORD@}"
+if [[ "$GIT_PULL" == "true" ]]; then
+  log "验证 Gitea 凭据并拉取最新仓库内容"
+  if ! (cd "$VAULT_GIT_DIR" && \
+    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
+      ls-remote "$git_auth_url" HEAD >/dev/null); then
+    die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
+  fi
+  if ! (cd "$VAULT_GIT_DIR" && \
+    GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
+      pull --ff-only "$git_auth_url" HEAD); then
+    die "Gitea git pull 失败，已停止备份"
+  fi
+else
+  log "已跳过 Gitea pull（GIT_PULL=$GIT_PULL），但仍验证凭据"
+  GIT_TERMINAL_PROMPT=0 "$GIT_BIN" -c credential.helper= \
+    ls-remote "$git_auth_url" HEAD >/dev/null || \
+    die "Gitea 验证失败，请检查 GIT_REMOTE、GIT_USERNAME 和 GIT_PASSWORD"
+fi
 
 # Prevent overlapping daily runs.
 LOCK_DIR="${TMPDIR:-/tmp}/obsidian-webdav-backup.lock"

@@ -1,11 +1,26 @@
 # obsidian-webdav-backup
 
-每天把 starxn 上 `vault-git` 仓库的**工作区文件**覆盖备份到 WebDAV；不上传 `.git`，因此不备份 Git 历史、对象和索引。
+每天把 starxn 上 `vault-git` 仓库的工作区文件覆盖备份到 WebDAV；不上传 `.git`，因此不备份 Git 历史、对象和索引。
 
-## 文件
+## Gitea 验证流程
 
-- `backup_obsidian_webdav.sh`：备份脚本
-- `.env.example`：配置模板；复制为 `.env` 后填写路径和 WebDAV 凭据
+脚本现在会在备份前：
+
+1. 使用 `GIT_USERNAME` / `GIT_PASSWORD` 调用 Gitea 的 `git ls-remote` 验证账号密码；
+2. 默认执行 `git pull --ff-only` 拉取 Gitea 最新内容；
+3. 拉取失败或认证失败时立即停止，不上传旧内容；
+4. `GIT_TERMINAL_PROMPT=0` 防止 cron 因等待密码而卡住。
+
+使用 Gitea 的 **HTTPS Clone URL**，例如：
+
+```bash
+GIT_REMOTE="https://gitea.example.com/用户名/vault-git.git"
+GIT_USERNAME="你的Gitea用户名"
+GIT_PASSWORD="你的Gitea密码或Access Token"
+GIT_PULL="true"
+```
+
+如果 Gitea 禁止使用账户密码进行 Git HTTPS 认证，请在 Gitea 生成 Access Token，把 Token 填入 `GIT_PASSWORD`。
 
 ## 安装到 starxn
 
@@ -21,15 +36,24 @@ vi .env
 ./backup_obsidian_webdav.sh
 ```
 
-脚本会：
+必须填写：
 
-1. 使用 `find` 遍历仓库工作区；
-2. 排除 `.git`；
-3. 自动创建 WebDAV 目录；
-4. 使用 `PUT` 上传每个文件，同名文件直接覆盖；
-5. 用锁目录避免同一时间重复运行。
+```bash
+VAULT_GIT_DIR="/root/data/vault-git"
+GIT_REMOTE="https://gitea.example.com/用户名/vault-git.git"
+GIT_USERNAME="你的用户名"
+GIT_PASSWORD="你的密码或Token"
+GIT_PULL="true"
+```
 
-注意：这是“覆盖备份”，不会删除 WebDAV 上已经存在、但后来从源仓库删除的旧文件。若需要严格镜像（远端多余文件也删除），应再单独增加清理步骤，避免误删。
+WebDAV 配置仍然需要填写：
+
+```bash
+WEBDAV_URL="https://你的-webdav地址"
+WEBDAV_REMOTE_DIR="obsidian-vault"
+WEBDAV_USER="你的WebDAV用户名"
+WEBDAV_PASSWORD="你的WebDAV密码"
+```
 
 ## 每天定时执行
 
@@ -39,12 +63,4 @@ vi .env
 30 3 * * * /root/bin/obsidian-webdav-backup/backup_obsidian_webdav.sh >> /var/log/obsidian-webdav-backup.log 2>&1
 ```
 
-## 前置检查
-
-在 starxn 上安装并确认 `curl`：
-
-```bash
-command -v curl
-```
-
-不要把 `.env` 提交到 Git；它包含 WebDAV 密码。
+注意：当前是覆盖上传，不会删除 WebDAV 上已经存在、但后来从源仓库删除的文件。
