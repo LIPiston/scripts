@@ -1,6 +1,6 @@
 # hermesK
 
-`hermesK` 是一个 Bash 函数，用于启动或进入持久化的 Hermes TUI tmux 会话。
+`hermesK` 是一个 Bash 函数，用于启动或进入持久化的 Hermes tmux 会话。
 
 ## 作用
 
@@ -13,12 +13,12 @@ hermesK
 行为：
 
 - 自动检测当前是否为 Windows Git Bash/MSYS/Cygwin 环境。
-- 所有系统：tmux 从用户主目录直接运行 `hermes --tui`，不再额外套一层 pwsh。
+- Windows：tmux 从用户主目录启动 `pwsh.exe`（PowerShell 7.x），再由 pwsh 运行普通模式的 `hermes`。
+- Linux/macOS：tmux 从用户主目录直接运行普通模式的 `hermes`。
 - Windows 使用原生 tmux（WinGet 包 `marlocarlo.psmux`）时，命令必须整体作为单个参数传给 tmux，因为 psmux 只把第一个参数当命令；`-c` 传 POSIX 路径 `/c/Users/...` 即可，MSYS 会自动转换为 Windows 路径，无需 cygpath 中转。
 - 如果 tmux 会话 `hermesK` 已存在：直接进入该会话，不重复启动 Hermes。
 - 如果当前已经在 tmux 内：切换到 `hermesK` 会话。
 - 如果当前不在 tmux 内：附加到 `hermesK` 会话。
-- `hermesK` 会话关闭 tmux 鼠标模式（`mouse off`），让 Windows Terminal 接管鼠标拖选和右键粘贴，避免选择文本后需要右键两次。
 - Linux/macOS 和 Windows 上 Hermes 退出后窗口与会话随之关闭，下次运行自动重建；直接退出 Hermes 即可，无需再输入 `exit`。
 
 ## 依赖
@@ -87,10 +87,10 @@ bash -n /d/LIPis/Documents/code/scripts/hermesK/hermesK.sh
 type hermesK
 ```
 
-检查脚本是否使用 TUI：
+检查脚本是否未启用 TUI：
 
 ```bash
-grep -F -- '--tui' /d/LIPis/Documents/code/scripts/hermesK/hermesK.sh
+! grep -F -- '--tui' /d/LIPis/Documents/code/scripts/hermesK/hermesK.sh
 ```
 
 检查 Windows 检测结果：
@@ -100,21 +100,9 @@ source /d/LIPis/Documents/code/scripts/hermesK/hermesK.sh
 _hermesK_is_windows && echo Windows || echo POSIX
 ```
 
-检查 `hermesK` 会话的鼠标模式：
-
-```bash
-tmux show-options -t hermesK -v mouse
-```
-
-预期输出：
-
-```text
-off
-```
-
 ## 迁移
 
-旧版本创建的 `hermesK` 会话可能没有启用 TUI，或仍在使用旧的 pwsh 包装命令。`hermesK` 不会重建已存在的会话，升级后请先删除旧会话，让下一次运行使用新命令：
+旧版本创建的 `hermesK` 会话可能仍在使用 TUI 或旧的 pwsh 启动命令。`hermesK` 不会重建已存在的会话，升级后请先删除旧会话，让下一次运行使用新命令：
 
 ```bash
 tmux kill-session -t hermesK
