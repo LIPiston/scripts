@@ -8,6 +8,7 @@ REM --- 说明 ---
 REM 需要和 SteamSwitcher.ps1 放在同一目录下运行
 
 @echo off
+chcp 65001 >nul
 setlocal EnableExtensions
 title Steam Account Switcher
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0SteamSwitcher.ps1"

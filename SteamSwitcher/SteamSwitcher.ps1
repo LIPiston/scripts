@@ -1,4 +1,4 @@
-# 作者 LIPiston
+﻿# 作者 LIPiston
 # 作用 Steam 账号切换器，用于快速在多个 Steam 账号间切换
 # 支持平台 Windows
 # 需要和 SteamSwitcher.bat 放在同一目录下运行
@@ -10,6 +10,12 @@
 # 3. 修改登录配置并启动 Steam
 
 $ErrorActionPreference = 'Stop'
+
+# 设置 Windows 控制台和 PowerShell 管道为 UTF-8
+chcp 65001 > $null
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 
 $steamPath = $null
 $regPaths = @(

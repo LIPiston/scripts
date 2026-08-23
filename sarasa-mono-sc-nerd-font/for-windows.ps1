@@ -2,6 +2,12 @@
 # 作用 下载更纱字体
 
 # 定义变量
+
+# 设置 Windows 控制台和 PowerShell 管道为 UTF-8
+chcp 65001 > $null
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 $FontUrl = "https://github.com/jonz94/Sarasa-Gothic-Nerd-Fonts/releases/latest/download/sarasa-mono-sc-nerd-font.zip"
 $DestDir = "./sarasa"
 $ZipFile = "sarasa-mono-sc-nerd-font.zip"

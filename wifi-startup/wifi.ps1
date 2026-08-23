@@ -1,6 +1,12 @@
 # 作者: LIPiston
 # 描述: 此脚本使用 WinRT API 在 Windows 10/11 上启用移动热点。
 
+# 设置 Windows 控制台和 PowerShell 管道为 UTF-8
+chcp 65001 > $null
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | ? { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
 Function Await($WinRtTask, $ResultType) {

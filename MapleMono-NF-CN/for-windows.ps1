@@ -2,6 +2,12 @@
 # 作用 下载最新版本的 MapleMono 字体
 
 # 定义变量
+
+# 设置 Windows 控制台和 PowerShell 管道为 UTF-8
+chcp 65001 > $null
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 $FontUrl = "https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF-CN-unhinted.zip"
 $DestDir = "./maple"
 $ZipFile = "MapleMono-NF-CN-unhinted.zip"

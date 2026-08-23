@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess = $true)]
+﻿[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [switch]$ListOnly,
     [switch]$InstallZed,
@@ -10,6 +10,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# 设置 Windows 控制台和 PowerShell 管道为 UTF-8
+chcp 65001 > $null
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
 $Script:ToolName = 'ZedClassicContextMenu'
 $Script:CreatedMarker = 'CreatedByZedClassicContextMenu'
 
