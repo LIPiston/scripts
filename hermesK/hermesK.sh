@@ -36,8 +36,11 @@ _hermesK_create_session() {
             return 127
         fi
 
-        tmux new-session -d -s "$session" -c "$start_dir" \
-            "pwsh.exe -NoLogo -NoProfile -Command hermes"
+        # 不把 Git Bash 的 $HOME 传给 Windows 原生 tmux 的 -c：某些 psmux/MSYS
+        # 组合会把 /c 错误解释成相对路径，从而产生 C:\\c。让 pwsh 自己
+        # 使用 Windows 的用户主目录，并在 PowerShell 中切换目录。
+        tmux new-session -d -s "$session" \
+            "pwsh.exe -NoLogo -NoProfile -Command \"Set-Location -LiteralPath ([Environment]::GetFolderPath('UserProfile')); hermes\""
     else
         tmux new-session -d -s "$session" -c "$start_dir" "hermes"
     fi
