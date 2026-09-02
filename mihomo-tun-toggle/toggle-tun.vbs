@@ -13,7 +13,11 @@ Set args = WScript.Arguments
 currentEnabled = ReadTunEnabled()
 expectedEnabled = Not currentEnabled
 
-If args.Count = 0 Or LCase(args(0)) <> "--dry-run" Then
+If args.Count = 0 Then
+    WScript.Sleep 150
+    shell.SendKeys "^%."
+    WScript.Sleep 2000
+ElseIf LCase(args(0)) <> "--dry-run" Then
     WScript.Sleep 150
     shell.SendKeys "^%."
     WScript.Sleep 2000
