@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HBKS 课表导出 ICS
 // @namespace    https://github.com/LIPiston/scripts
-// @version      0.2.0
+// @version      0.3.0
 // @description  将河北科师教务系统课表导出为带30分钟提醒的 ICS
 // @match        https://jwxt.hevttc.edu.cn/*
 // @grant        none
@@ -10,7 +10,7 @@
 
 (() => {
   'use strict';
-  const NAME = '我的课表 2026-2027第1学期';
+  const DEFAULT_NAME = '我的课表 2026-2027第1学期';
   const PERIODS = {
     1:['08:00','09:40'], 3:['10:00','11:40'], 5:['13:30','15:10'],
     7:['15:30','17:10'], 9:['17:30','19:00'], 11:['19:30','21:00']
@@ -49,8 +49,8 @@
   }
   function collect(doc) { return [...doc.querySelectorAll('td.cell[id^="Cell"]')].flatMap(parseCell); }
   function download(name, data) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'text/calendar;charset=utf-8'})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
-  function build(courses, firstMonday) {
-    const now=new Date(), L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//LIPiston//HBKS ICS//CN','CALSCALE:GREGORIAN',`X-WR-CALNAME:${esc(NAME)}`,'X-WR-TIMEZONE:Asia/Shanghai'];
+  function build(courses, firstMonday, calendarName) {
+    const now=new Date(), L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//LIPiston//HBKS ICS//CN','CALSCALE:GREGORIAN',`X-WR-CALNAME:${esc(calendarName)}`,'X-WR-TIMEZONE:Asia/Shanghai'];
     for(const c of courses) for(const w of weeks(c.weekText)) {
       const day=addDays(firstMonday,(w-1)*7+c.weekday-1), [st,et]=c.times;
       const key=`${c.title}|${day.toISOString().slice(0,10)}|${c.room}`;
@@ -59,10 +59,15 @@
     L.push('END:VCALENDAR'); return L.join('\r\n')+'\r\n';
   }
   function run() {
-    const courses=collect(sourceDocument()); if(!courses.length) return alert('未找到课表单元，请打开实际课表 iframe 页面后重试。');
-    const raw=prompt(`已识别 ${courses.length} 个课程记录。请输入第1周周一日期（YYYY-MM-DD）：`,'2026-08-31');
-    const first=parseDate(raw||''); if(!first) return alert('日期格式无效，未导出。');
-    const ics=build(courses,monday(first)); download(`hbks-course-${raw}.ics`,ics);
+    let courses=collect(sourceDocument()); if(!courses.length) return alert('未找到课表单元，请打开实际课表 iframe 页面后重试。');
+    const name=prompt('请输入课表名称：',DEFAULT_NAME)?.trim();
+    if(!name) return alert('课表名称不能为空，未导出。');
+    const raw=prompt(`已识别 ${courses.length} 个课程记录。请输入周数范围，例如 1-18，或留空使用课表中的周次：`,'');
+    const first=parseDate(prompt('请输入第1周周一日期（YYYY-MM-DD）：','2026-08-31')||''); if(!first) return alert('日期格式无效，未导出。');
+    const selectedWeeks=raw?.trim();
+    if(selectedWeeks && !/^\d+(?:-\d+)?$/.test(selectedWeeks)) return alert('周数格式无效，请使用例如 1-18。');
+    if(selectedWeeks){ const m=selectedWeeks.match(/^(\d+)(?:-(\d+))?$/); const lo=+m[1], hi=+(m[2]||m[1]); courses=courses.map(c=>({...c,weekText:weeks(c.weekText).filter(w=>w>=lo&&w<=hi).join(',')})).filter(c=>c.weekText); }
+    const ics=build(courses,monday(first),name); download(`hbks-course-${name}.ics`,ics);
     const count=(ics.match(/BEGIN:VEVENT/g)||[]).length; alert(`已导出 ${count} 个课程事件。每个事件含一个提前30分钟提醒。`);
   }
   const b=document.createElement('button'); b.textContent='导出 ICS'; Object.assign(b.style,{position:'fixed',right:'20px',bottom:'20px',zIndex:999999,padding:'10px 16px',background:'#1677ff',color:'#fff',border:0,borderRadius:'6px',cursor:'pointer',fontSize:'14px'}); b.onclick=run; document.body.appendChild(b);
