@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HBKS 课表导出 ICS
 // @namespace    https://github.com/LIPiston/scripts
-// @version      0.6.0
+// @version      0.7.0
 // @description  将河北科师教务系统课表导出为带30分钟提醒的 ICS
 // @match        https://jwxt.hevttc.edu.cn/*
 // @grant        none
@@ -29,7 +29,9 @@
   }
   function weeks(s) {
     const out=[];
-    for (const part of s.replace(/周/g,'').split(/[,，]/)) {
+    const source=String(s||'').match(/[0-9０-９,，\-~～()（）单双]+周/);
+    if(!source) return out;
+    for (const part of source[0].replace(/周/g,'').replace(/[（）]/g,m=>m==='（'?'(' : ')').split(/[,，]/)) {
       const m=part.trim().match(/^(\d+)(?:-(\d+))?(?:\((单|双)\))?$/); if(!m) continue;
       for(let n=+m[1]; n<=+(m[2]||m[1]); n++) if(!m[3] || (m[3]==='单' ? n%2 : !(n%2))) out.push(n);
     }
@@ -44,7 +46,8 @@
       const a=text.slice(start, starts[n+1] ?? text.length), wi=a.findIndex(x=>/周$/.test(x));
       if(wi<2) return null;
       const title=a[1], type=/^（.*）$/.test(a[2]||'') ? a[2] : '';
-      return {weekday,period,times,title:title+type,teacher:a[wi-1]||'',weekText:a[wi],room:a[wi+1]||'',exam:a.slice(wi+2).find(x=>['考试','考查','技术测试'].includes(x))||''};
+      const weekLine=a[wi], weekMatch=weekLine.match(/[0-9０-９,，\-~～()（）单双]+周/);
+      return {weekday,period,times,title:title+type,teacher:weekMatch ? weekLine.slice(0,weekMatch.index).trim() : a[wi-1]||'',weekText:weekMatch ? weekMatch[0] : '',room:a[wi+1]||'',exam:a.slice(wi+2).find(x=>['考试','考查','技术测试'].includes(x))||''};
     }).filter(Boolean);
   }
   function collect(doc) { return [...doc.querySelectorAll('td.cell[id^="Cell"]')].flatMap(parseCell); }
