@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HBKS 课表导出 ICS
 // @namespace    https://github.com/LIPiston/scripts
-// @version      0.7.0
+// @version      0.8.0
 // @description  将河北科师教务系统课表导出为带30分钟提醒的 ICS
 // @match        https://jwxt.hevttc.edu.cn/*
 // @grant        none
@@ -53,11 +53,11 @@
   function collect(doc) { return [...doc.querySelectorAll('td.cell[id^="Cell"]')].flatMap(parseCell); }
   function download(name, data) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'text/calendar;charset=utf-8'})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
   function build(courses, firstMonday, calendarName, term) {
-    const now=new Date(), L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//LIPiston//HBKS ICS//CN','CALSCALE:GREGORIAN',`X-WR-CALNAME:${esc(calendarName)}`,`X-WR-CALDESC:${esc(`学年学期：${term}`)}`,'X-WR-TIMEZONE:Asia/Shanghai'];
+    const now=new Date(), L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//LIPiston//HBKS ICS//CN','CALSCALE:GREGORIAN',`X-WR-CALNAME:${esc(calendarName)}`,`X-WR-CALDESC:${esc(`学年学期：${term}`)}`];
     for(const c of courses) for(const w of weeks(c.weekText)) {
       const day=addDays(firstMonday,(w-1)*7+c.weekday-1), [st,et]=c.times;
       const key=`${c.title}|${day.toISOString().slice(0,10)}|${c.room}`;
-      L.push('BEGIN:VEVENT',`UID:${encodeURIComponent(key)}@hbks-ics`,`DTSTAMP:${dt(now,'00:00')}Z`,`DTSTART;TZID=Asia/Shanghai:${dt(day,st)}`,`DTEND;TZID=Asia/Shanghai:${dt(day,et)}`,`SUMMARY:${esc(c.title)}`,`LOCATION:${esc(c.room)}`,`DESCRIPTION:${esc(`教师：${c.teacher}；周次：${c.weekText}；类型：${c.exam}`)}`,'BEGIN:VALARM','ACTION:DISPLAY','TRIGGER:-PT30M','DESCRIPTION:课程提醒','END:VALARM','END:VEVENT');
+      L.push('BEGIN:VEVENT',`UID:${encodeURIComponent(key)}@hbks-ics`,`DTSTAMP:${dt(now,'00:00')}Z`,`DTSTART:${dt(day,st)}`,`DTEND:${dt(day,et)}`,`SUMMARY:${esc(c.title)}`,`LOCATION:${esc(c.room)}`,`DESCRIPTION:${esc(`教师：${c.teacher}；周次：${c.weekText}；类型：${c.exam}`)}`,'BEGIN:VALARM','ACTION:DISPLAY','TRIGGER:-PT30M','DESCRIPTION:课程提醒','END:VALARM','END:VEVENT');
     }
     L.push('END:VCALENDAR'); return L.join('\r\n')+'\r\n';
   }
