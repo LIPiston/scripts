@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HBKS 课表导出 ICS
 // @namespace    https://github.com/LIPiston/scripts
-// @version      0.5.0
+// @version      0.6.0
 // @description  将河北科师教务系统课表导出为带30分钟提醒的 ICS
 // @match        https://jwxt.hevttc.edu.cn/*
 // @grant        none
@@ -36,7 +36,7 @@
     return [...new Set(out)].sort((a,b)=>a-b);
   }
   function parseCell(cell) {
-    const id=cell.id.match(/^Cell(\d+?)(1|3|5|7|9|11)$/); if(!id) return [];
+    const id=cell.id.match(/^Cell([1-7])(11|9|7|5|3|1)$/); if(!id) return [];
     const weekday=+id[1], period=+id[2], times=PERIODS[period]; if(!times) return [];
     const text=cell.innerText.replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);
     const starts=[]; text.forEach((x,i)=>{ if(['秦皇岛','昌黎','开发区','山东堡','其它'].includes(x)) starts.push(i); });
@@ -49,11 +49,10 @@
   }
   function collect(doc) { return [...doc.querySelectorAll('td.cell[id^="Cell"]')].flatMap(parseCell); }
   function download(name, data) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([data],{type:'text/calendar;charset=utf-8'})); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
-  function build(courses, firstMonday, calendarName, term, openingDay) {
+  function build(courses, firstMonday, calendarName, term) {
     const now=new Date(), L=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//LIPiston//HBKS ICS//CN','CALSCALE:GREGORIAN',`X-WR-CALNAME:${esc(calendarName)}`,`X-WR-CALDESC:${esc(`学年学期：${term}`)}`,'X-WR-TIMEZONE:Asia/Shanghai'];
     for(const c of courses) for(const w of weeks(c.weekText)) {
       const day=addDays(firstMonday,(w-1)*7+c.weekday-1), [st,et]=c.times;
-      if(w===1 && day < openingDay) continue;
       const key=`${c.title}|${day.toISOString().slice(0,10)}|${c.room}`;
       L.push('BEGIN:VEVENT',`UID:${encodeURIComponent(key)}@hbks-ics`,`DTSTAMP:${dt(now,'00:00')}Z`,`DTSTART;TZID=Asia/Shanghai:${dt(day,st)}`,`DTEND;TZID=Asia/Shanghai:${dt(day,et)}`,`SUMMARY:${esc(c.title)}`,`LOCATION:${esc(c.room)}`,`DESCRIPTION:${esc(`教师：${c.teacher}；周次：${c.weekText}；类型：${c.exam}`)}`,'BEGIN:VALARM','ACTION:DISPLAY','TRIGGER:-PT30M','DESCRIPTION:课程提醒','END:VALARM','END:VEVENT');
     }
@@ -67,7 +66,7 @@
     if(!term || !/^\d{4}-\d{4}-[12]$/.test(term)) return alert('学年学期格式无效，请使用例如 2026-2027-1。');
     const firstWeek=monday(first);
     const calendarName=`课表${opening.replace(/-/g,'')}`;
-    const ics=build(courses,firstWeek,calendarName,term,first); download(`课表${opening.replace(/-/g,'')}.ics`,ics);
+    const ics=build(courses,firstWeek,calendarName,term); download(`课表${opening.replace(/-/g,'')}.ics`,ics);
     const count=(ics.match(/BEGIN:VEVENT/g)||[]).length; alert(`已导出 ${count} 个课程事件。每个事件含一个提前30分钟提醒。`);
   }
   const b=document.createElement('button'); b.textContent='导出 ICS'; Object.assign(b.style,{position:'fixed',right:'20px',bottom:'20px',zIndex:999999,padding:'10px 16px',background:'#1677ff',color:'#fff',border:0,borderRadius:'6px',cursor:'pointer',fontSize:'14px'}); b.onclick=run; document.body.appendChild(b);
