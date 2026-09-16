@@ -13,7 +13,7 @@
 #
 # 安全特性：
 #   - 只操作配置的两个证书目标文件；
-#   - 修改前将旧文件备份到持久化 backup 目录；
+#   - 仅在证书或私钥发生变化时备份旧文件；
 #   - 采用临时文件 + 原子替换，避免写入半个证书；
 #   - 每次正式同步都会重启 DERP；
 #   - 不自动删除历史备份；
@@ -37,7 +37,7 @@ DERP_DATA_DIR="${DERP_DATA_DIR:-$DERP_COMPOSE_DIR/data}"
 TARGET_CERT="${TARGET_CERT:-$DERP_DATA_DIR/derper.lipiston.eu.org.crt}"
 TARGET_KEY="${TARGET_KEY:-$DERP_DATA_DIR/derper.lipiston.eu.org.key}"
 
-# 备份目录不会自动清理。
+# 备份目录不会自动清理；只有内容发生变化时才创建备份。
 BACKUP_DIR="${BACKUP_DIR:-$DERP_DATA_DIR/cert-sync-backups}"
 LOCK_FILE="${LOCK_FILE:-/run/lock/starxn-derper-cert-sync.lock}"
 DERP_DOMAIN="${DERP_DOMAIN:-derper.lipiston.eu.org}"
@@ -142,8 +142,6 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 TMP_DIR=$(mktemp -d "$DERP_DATA_DIR/.cert-sync.XXXXXX")
-BACKUP="$BACKUP_DIR/$(date '+%Y%m%d-%H%M%S')"
-mkdir -p -m 700 "$BACKUP"
 
 # 先生成临时副本并验证，避免把损坏文件写入运行目录。
 install -m 644 "$SOURCE_CERT" "$TMP_DIR/derper.lipiston.eu.org.crt"
@@ -156,10 +154,16 @@ backup_one() {
   cp -a -- "$target" "$BACKUP/"
 }
 
-backup_one "$TARGET_CERT"
-backup_one "$TARGET_KEY"
-
-log "备份已创建: $BACKUP"
+if [[ "$CERT_CHANGED" -eq 1 || "$KEY_CHANGED" -eq 1 ]]; then
+  BACKUP="$BACKUP_DIR/$(date '+%Y%m%d-%H%M%S')"
+  mkdir -p -m 700 "$BACKUP"
+  backup_one "$TARGET_CERT"
+  backup_one "$TARGET_KEY"
+  log "备份已创建: $BACKUP"
+else
+  BACKUP=""
+  log "证书和私钥内容均未变化，不创建备份；仍将同步并重启 DERP。"
+fi
 
 mv -f -- "$TMP_DIR/derper.lipiston.eu.org.crt" "$TARGET_CERT"
 mv -f -- "$TMP_DIR/derper.lipiston.eu.org.key" "$TARGET_KEY"
@@ -205,4 +209,6 @@ fi
 log "同步完成。证书来源和目标 SHA-256："
 log "cert $(sha256 "$SOURCE_CERT")"
 log "key  $(sha256 "$SOURCE_KEY")"
-log "备份保留在: $BACKUP"
+if [[ -n "$BACKUP" ]]; then
+  log "备份保留在: $BACKUP"
+fi
