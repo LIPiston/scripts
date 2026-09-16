@@ -19,7 +19,7 @@ starxn 的 DERP 容器把宿主机目录：
 1Panel privkey.pem    -> data/derper.lipiston.eu.org.key
 ```
 
-只在证书或私钥实际发生变化时重启 DERP 容器。
+每次正式运行都会同步两个证书文件并重启 DERP 容器，不根据文件内容变化跳过重启。
 
 ## 默认路径
 
@@ -61,14 +61,13 @@ bash /root/sync_derper_cert.sh
 
 1. 检查 root、Docker、OpenSSL、来源证书和 DERP Compose 目录；
 2. 验证证书 SAN 覆盖 `derper.lipiston.eu.org`；
-3. 比较来源和 `data` 目录中的证书/私钥；
-4. 如果无变化则直接退出，不重启容器；
-5. 如果有变化，在 `data/cert-sync-backups/<时间戳>/` 保存旧文件；
-6. 使用临时文件和原子替换更新目标文件；
-7. 校验来源与目标 SHA-256 一致；
-8. 重启 `derper` Compose 服务；
-9. 从容器内验证证书可读且可解析；
-10. 检查公网 `https://derper.lipiston.eu.org/generate_204` 返回 `204`。
+3. 比较并记录来源和目标文件是否变化；
+4. 无论是否变化，都在 `data/cert-sync-backups/<时间戳>/` 保存旧文件；
+5. 使用临时文件和原子替换更新两个目标文件；
+6. 校验来源与目标 SHA-256 一致；
+7. 每次正式运行都重启 `derper` Compose 服务；
+8. 从容器内验证证书可读且可解析；
+9. 检查公网 `https://derper.lipiston.eu.org/generate_204` 返回 `204`。
 
 ## 1Panel 每周计划任务
 

@@ -2,8 +2,8 @@
 #
 # starxn DERP 证书同步脚本
 #
-# 将 1Panel 当前证书复制到 DERP Compose 的 data 目录，并在证书有变化时
-# 重启 DERP 容器。脚本不使用符号链接，兼容 Docker 对 data 目录的独立挂载。
+# 将 1Panel 当前证书复制到 DERP Compose 的 data 目录，并重启 DERP 容器。
+# 脚本不使用符号链接，兼容 Docker 对 data 目录的独立挂载。
 #
 # 用法：
 #   bash sync_derper_cert.sh --dry-run
@@ -15,7 +15,7 @@
 #   - 只操作配置的两个证书目标文件；
 #   - 修改前将旧文件备份到持久化 backup 目录；
 #   - 采用临时文件 + 原子替换，避免写入半个证书；
-#   - 证书和私钥都变化时才重启 DERP；
+#   - 每次正式同步都会重启 DERP；
 #   - 不自动删除历史备份；
 #   - 使用锁避免多个计划任务并发执行；
 #   - 支持 --dry-run。
@@ -136,13 +136,8 @@ if ! same_content "$SOURCE_KEY" "$TARGET_KEY"; then KEY_CHANGED=1; fi
 
 show_plan
 
-if [[ "$CERT_CHANGED" -eq 0 && "$KEY_CHANGED" -eq 0 ]]; then
-  log "证书和私钥均无变化，不重启 DERP。"
-  exit 0
-fi
-
 if [[ "$DRY_RUN" -eq 1 ]]; then
-  log "DRY RUN：将创建备份并更新变化的证书文件，但不会写入或重启容器。"
+  log "DRY RUN：将创建备份并同步证书，每次正式运行都会重启容器；本次不会写入或重启。"
   exit 0
 fi
 
@@ -161,17 +156,13 @@ backup_one() {
   cp -a -- "$target" "$BACKUP/"
 }
 
-if [[ "$CERT_CHANGED" -eq 1 ]]; then backup_one "$TARGET_CERT"; fi
-if [[ "$KEY_CHANGED" -eq 1 ]]; then backup_one "$TARGET_KEY"; fi
+backup_one "$TARGET_CERT"
+backup_one "$TARGET_KEY"
 
 log "备份已创建: $BACKUP"
 
-if [[ "$CERT_CHANGED" -eq 1 ]]; then
-  mv -f -- "$TMP_DIR/derper.lipiston.eu.org.crt" "$TARGET_CERT"
-fi
-if [[ "$KEY_CHANGED" -eq 1 ]]; then
-  mv -f -- "$TMP_DIR/derper.lipiston.eu.org.key" "$TARGET_KEY"
-fi
+mv -f -- "$TMP_DIR/derper.lipiston.eu.org.crt" "$TARGET_CERT"
+mv -f -- "$TMP_DIR/derper.lipiston.eu.org.key" "$TARGET_KEY"
 
 # 写入后读取回验证内容和格式。
 [[ "$(sha256 "$SOURCE_CERT")" == "$(sha256 "$TARGET_CERT")" ]] \
