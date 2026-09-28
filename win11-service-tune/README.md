@@ -24,6 +24,23 @@ lfsvc                TrkWks
 
 改为手动（不发车但不禁用）：`BITS`、`WSearch`
 
+### 批次 B（同日第二批，8 项禁用）
+
+```
+Spooler            StiSvc             MRAfterSaleService   NahimicService
+AMD Crash Defender Service             webthreatdefsvc      whesvc
+seclogon
+```
+另外把 per-user 服务的**模板** `webthreatdefusersvc` 置为 Disabled（实例
+`webthreatdefusersvc_1537d7` 由模板在登录时创建，禁用模板即可；实例本身拒绝直接改配置，sc 报错 87）。
+
+两个已知的"改不动"要记住：
+
+| 服务 | 现象 | 处理 |
+|---|---|---|
+| `webthreatdefusersvc_*`（per-user 实例） | `Set-Service`/`sc config` 报"参数错误"(87)，`Win32_Service` 甚至不枚举它 | 改**模板** `sc.exe config webthreatdefusersvc start= disabled`；实例当前已 Stop，下次登录不会再被拉起 |
+| `seclogon` | `sc query` 显示 `NOT_STOPPABLE`，`Stop-Service` 失败 | 只改启动类型（Disabled），本进程会一直运行到下次重启，重启后不再启动 |
+
 ## 绝不要动（保 WSL2 与游戏体验）
 
 | 类别 | 服务 | 原因 |

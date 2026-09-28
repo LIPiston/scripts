@@ -24,4 +24,16 @@ Set-Service -Name lfsvc -StartupType Manual
 Set-Service -Name TrkWks -StartupType Automatic
 Set-Service -Name BITS -StartupType Automatic
 Set-Service -Name WSearch -StartupType Automatic
+
+# --- batch B (2026-09-28) ---
+Set-Service -Name Spooler -StartupType Automatic
+Set-Service -Name StiSvc -StartupType Automatic
+Set-Service -Name MRAfterSaleService -StartupType Automatic
+Set-Service -Name NahimicService -StartupType Automatic
+Set-Service -Name 'AMD Crash Defender Service' -StartupType Automatic
+Set-Service -Name webthreatdefsvc -StartupType Manual
+Set-Service -Name whesvc -StartupType Automatic
+Set-Service -Name seclogon -StartupType Manual
+sc.exe config webthreatdefusersvc start= auto
+# sc.exe config webthreatdefusersvc_<luid> start= auto   # optional: instance, SCM usually refuses (87)
 Write-Host 'Rollback done.'
