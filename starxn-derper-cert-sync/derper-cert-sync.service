@@ -1,0 +1,7 @@
+[Unit]
+Description=Sync 1Panel cert into tailscale-derper
+Documentation=file:/opt/derper-cert-sync/README.md
+
+[Service]
+Type=oneshot
+ExecStart=/opt/derper-cert-sync/derper-cert-sync.sh

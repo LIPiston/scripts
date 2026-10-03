@@ -1,0 +1,10 @@
+[Unit]
+Description=Distribute 1Panel cert to derper (boot + every 15 min)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

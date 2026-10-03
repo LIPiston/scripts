@@ -1,146 +1,129 @@
 # starxn-derper-cert-sync
 
-将 1Panel 管理的 DERP 证书同步到 starxn 上 `tailscale-derper` 的 Docker Compose `data` 目录。
+把 1Panel 管理的 `derper.lipiston.eu.org` 证书自动分发进 starxn 上的 `tailscale-derper` 容器，并刷新 OpenResty 的 443 入口。
 
-## 为什么需要这个脚本
+当前生效的部署方式：**1Panel 负责签发/续期，systemd timer 负责分发**（脚本 `derper-cert-sync.sh`）。
 
-starxn 的 DERP 容器把宿主机目录：
+## 为什么需要它
 
-```text
-/opt/1panel/docker/compose/tailscale-derper/data
-```
-
-以只读方式挂载到容器 `/app/certs`。宿主机 `data` 内的符号链接不能指向挂载目录外部的 1Panel 证书目录，否则容器内会看见链接，但看不到链接目标。
-
-本脚本采用安全的“复制 + 校验 + 重启”方式，不使用符号链接：
+DERP 的链路是两跳，两跳各用一份证书：
 
 ```text
-1Panel fullchain.pem  -> data/derper.lipiston.eu.org.crt
-1Panel privkey.pem    -> data/derper.lipiston.eu.org.key
+客户端 --TLS--> derper.lipiston.eu.org:443 -- OpenResty --TLS--> 127.0.0.1:33445 (容器 tailscale-derper)
 ```
 
-每次正式运行都会同步两个证书文件并重启 DERP 容器，不根据文件内容变化跳过重启。只有证书或私钥内容发生变化时才创建旧文件备份；内容未变化时不创建备份。
+- OpenResty 用 `/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/{fullchain.pem,privkey.pem}`（1Panel 管理，续期时就地覆盖）。
+- 容器需要自己目录下的 `data/derper.lipiston.eu.org.{crt,key}`；容器把宿主机的 `data` 目录以只读方式挂到 `/app/certs`，所以**不能用符号链接**指到 1Panel 证书目录（容器内会看到链接但看不到目标），只能复制。
+- OpenResty 启动时把证书读进内存，**换文件后必须 reload**，否则客户端看到的还是旧证书。
 
-## 默认路径
+少了任何一步，就会出现“1Panel 明明续期了、DERP 还报证书过期”。2026-10-03 就是这么挂的：`lipiston.eu.org` 通配符证书 2026-09-30 03:02 UTC 到期，DERP 全部走 relay 失败。
 
-```text
-来源证书：/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/fullchain.pem
-来源私钥：/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/privkey.pem
-目标目录：/opt/1panel/docker/compose/tailscale-derper/data
-Compose： /opt/1panel/docker/compose/tailscale-derper
-容器：    tailscale-derper
-服务：    derper
-```
+## 组成与路径
 
-## 安装到 starxn
-
-在本地仓库目录执行：
-
-```bash
-scp sync_derper_cert.sh starxn:/root/sync_derper_cert.sh
-ssh starxn 'chmod 700 /root/sync_derper_cert.sh'
-```
-
-也可以通过 1Panel 文件管理器上传到 `/root/sync_derper_cert.sh`，然后设置可执行权限。
-
-## 第一次运行：预览
-
-```bash
-bash /root/sync_derper_cert.sh --dry-run
-```
-
-`--dry-run` 会检查来源证书、SAN、目标文件变化和 Docker 环境，但不会修改文件、创建备份或重启容器。
-
-## 正式运行
-
-```bash
-bash /root/sync_derper_cert.sh
-```
-
-脚本执行时会：
-
-1. 检查 root、Docker、OpenSSL、来源证书和 DERP Compose 目录；
-2. 验证证书 SAN 覆盖 `derper.lipiston.eu.org`；
-3. 比较并记录来源和目标文件是否变化；
-4. 如果证书或私钥有变化，在 `data/cert-sync-backups/<时间戳>/` 保存旧文件；无变化时不创建备份；
-5. 使用临时文件和原子替换更新两个目标文件；
-6. 校验来源与目标 SHA-256 一致；
-7. 每次正式运行都重启 `derper` Compose 服务；
-8. 从容器内验证证书可读且可解析；
-9. 检查公网 `https://derper.lipiston.eu.org/generate_204` 返回 `204`。
-
-## 1Panel 每周计划任务
-
-建议在 1Panel 中创建 Shell 计划任务：
-
-```bash
-bash /root/sync_derper_cert.sh
-```
-
-周期可设置为每周一次。证书续期后，脚本会在下一次运行时发现文件变化，自动同步并重启 DERP。
-
-更稳妥的做法是：让脚本运行在 1Panel 证书续期之后。如果 1Panel 的证书任务和本脚本在同一时间运行，可能出现竞态，建议错开至少 10 分钟。
-
-## 配置参数
-
-不需要修改脚本即可通过环境变量覆盖路径：
-
-```bash
-DERP_COMPOSE_DIR=/opt/1panel/docker/compose/tailscale-derper \
-SOURCE_CERT=/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/fullchain.pem \
-SOURCE_KEY=/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/privkey.pem \
-  bash /root/sync_derper_cert.sh --dry-run
-```
-
-主要变量：
-
-| 变量 | 默认值 |
+| 角色 | 路径 |
 |---|---|
-| `DERP_COMPOSE_DIR` | `/opt/1panel/docker/compose/tailscale-derper` |
-| `DERP_SERVICE` | `derper` |
-| `DERP_CONTAINER` | `tailscale-derper` |
-| `SOURCE_CERT` | `/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/fullchain.pem` |
-| `SOURCE_KEY` | `/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/privkey.pem` |
-| `DERP_DATA_DIR` | `$DERP_COMPOSE_DIR/data` |
-| `BACKUP_DIR` | `$DERP_DATA_DIR/cert-sync-backups` |
-| `DERP_DOMAIN` | `derper.lipiston.eu.org` |
+| 脚本 | `/opt/derper-cert-sync/derper-cert-sync.sh` |
+| 兼容软链 | `/usr/local/bin/derper-cert-sync.sh` -> 上面那个 |
+| systemd | `/etc/systemd/system/derper-cert-sync.service` + `.timer` |
+| 触发 | 开机后 2 分钟 + 每 15 分钟（`OnBootSec=2min`、`OnUnitActiveSec=15min`、`Persistent=true`） |
+| 日志 | `/var/log/derper-cert-sync.log` |
+| 源（1Panel） | `/opt/1panel/www/sites/derper.lipiston.eu.org/ssl/{fullchain.pem,privkey.pem}` |
+| 目标（容器） | `/opt/1panel/docker/compose/tailscale-derper/data/derper.lipiston.eu.org.{crt,key}` |
+
+## 一轮同步做什么
+
+1. 读 1Panel 的源证书；两道校验：必须覆盖 `derper.lipiston.eu.org`（`openssl -checkhost`）、剩余有效期 > 3 天（`-checkend 259200`）。不通过只写 `ERROR` 进日志，**什么都不动**。
+2. 比较 `sha256(源 fullchain.pem)` 与 `sha256(data/derper.lipiston.eu.org.crt)`：
+   - 相同 -> 直接 `exit 0`，静默结束，**不重启任何东西**（所以 15 分钟一轮几乎没有代价）。
+   - 不同 -> 覆盖 `.crt`(644)/`.key`(600) -> `docker restart tailscale-derper` -> `openresty -s reload` -> 写一行日志。
+3. OpenResty 容器名运行时用 `docker ps` 自己找（不硬编码）；找不到或 reload 失败会写 `ERROR: ... port 443 still serves the previous cert`。
+
+设计取舍：只在内容变化时重启，是因为 derper 重启会让 relay 连接断几秒（客户端会自动重连或转直连），没必要每 15 分钟来一次。
+
+## 安装 / 重装到 starxn
+
+```bash
+# 1) 脚本
+ssh starxn 'mkdir -p /opt/derper-cert-sync'
+scp derper-cert-sync.sh starxn:/opt/derper-cert-sync/derper-cert-sync.sh
+ssh starxn 'chmod 755 /opt/derper-cert-sync/derper-cert-sync.sh'
+
+# 2) systemd
+scp derper-cert-sync.service derper-cert-sync.timer starxn:/etc/systemd/system/
+ssh starxn 'systemctl daemon-reload && systemctl enable --now derper-cert-sync.timer && systemctl start derper-cert-sync.service'
+
+# 3) 兼容软链（可选，方便直接敲脚本名）
+ssh starxn 'ln -sf /opt/derper-cert-sync/derper-cert-sync.sh /usr/local/bin/derper-cert-sync.sh'
+```
+
+## 常用命令
+
+```bash
+# 手工触发一次
+ssh starxn 'systemctl start derper-cert-sync.service'
+
+# 看日志 / 看 systemd 侧
+ssh starxn 'tail -n 20 /var/log/derper-cert-sync.log; journalctl -u derper-cert-sync.service -n 20 --no-pager'
+
+# 改频率（编辑 .timer 的 OnUnitActiveSec 后）
+ssh starxn 'systemctl daemon-reload && systemctl restart derper-cert-sync.timer && systemctl list-timers derper-cert-sync.timer'
+```
+
+## 验证
+
+```bash
+# 1) 两侧证书到期时间应一致
+ssh starxn 'openssl x509 -in /opt/1panel/docker/compose/tailscale-derper/data/derper.lipiston.eu.org.crt -noout -enddate; \
+            openssl x509 -in /opt/1panel/www/sites/derper.lipiston.eu.org/ssl/fullchain.pem -noout -enddate'
+
+# 2) 客户端实际看到的（443 入口，OpenResty 呈现的）
+ssh starxn 'echo | openssl s_client -connect derper.lipiston.eu.org:443 -servername derper.lipiston.eu.org 2>/dev/null | openssl x509 -noout -subject -dates'
+
+# 3) 连通性：期望 200
+ssh starxn 'curl -sS -o /dev/null -w "%{http_code}\n" https://derper.lipiston.eu.org/derp/probe'
+
+# 4) tailscaled 侧：期望看到 derp-900 connected
+ssh starxn 'journalctl -u tailscaled --since "5 min ago" --no-pager | grep -i derp'
+```
+
+端到端演练（安全、可重复）：把 `data/` 里的证书换成另一份旧证书，跑一次脚本，看是否被自动纠正并 reload：
+
+```bash
+ssh starxn 'D=/opt/1panel/docker/compose/tailscale-derper/data; \
+  cp -a "$D/lipiston.eu.org.crt" "$D/derper.lipiston.eu.org.crt"; \
+  /opt/derper-cert-sync/derper-cert-sync.sh; tail -2 /var/log/derper-cert-sync.log'
+```
 
 ## 回滚
 
-每次实际更新前，旧文件会保存到：
-
-```text
-/opt/1panel/docker/compose/tailscale-derper/data/cert-sync-backups/YYYYMMDD-HHMMSS/
-```
-
-回滚示例：
+脚本自身不建备份目录；改动前建议手工留一份：
 
 ```bash
-cd /opt/1panel/docker/compose/tailscale-derper
-
-docker compose stop derper
-cp -a data/cert-sync-backups/YYYYMMDD-HHMMSS/derper.lipiston.eu.org.crt data/
-cp -a data/cert-sync-backups/YYYYMMDD-HHMMSS/derper.lipiston.eu.org.key data/
-chmod 644 data/derper.lipiston.eu.org.crt
-chmod 600 data/derper.lipiston.eu.org.key
-docker compose up -d derper
+ssh starxn 'D=/opt/1panel/docker/compose/tailscale-derper/data; \
+  cp -a "$D/derper.lipiston.eu.org.crt" "$D/derper.lipiston.eu.org.crt.bak.$(date +%s)"'
 ```
 
-回滚后检查：
+历史上手工备份位置：`/root/derper.crt.backup.<epoch>`、`data/cert-sync-backups/YYYYMMDD-HHMMSS/`（2026-09-16 那次）。
 
-```bash
-docker inspect tailscale-derper --format '{{.State.Status}}'
-curl -4 -skS -o /dev/null -w '%{http_code}\n' https://derper.lipiston.eu.org/generate_204
-```
+## 注意：1Panel 里还有一个重叠的计划任务
 
-## 安全设计
+1Panel 中存在名为 `derper证书` 的 **Shell 计划任务**，周期 `30 5 * * *`（每天 05:30），执行的是本仓库里那份旧脚本（`sync_derper_cert.sh` 的内容）。它和 systemd timer **功能重叠**，而且比新脚本弱：
 
-- 不删除历史备份；无变化时不新增备份目录；
-- 不使用符号链接；
-- 只修改两个明确的证书文件；
-- 不修改 Compose 文件、OpenResty 配置或 1Panel 配置；
-- 私钥目标权限保持为 `0600`；
-- 使用锁目录避免计划任务重叠；
-- 使用临时文件后原子替换；
-- 更新后从容器内部验证，而不是只检查宿主机；
-- 健康检查失败时返回非零状态，便于 1Panel 记录失败。
+- 不校验有效期：2026-10-03 05:30 那次它照旧把**已过期的**通配符证书（`notAfter Sep 30 03:02:09 2026`）复制进容器并重启 DERP，日志里还写着“健康检查通过 -> 204”（OpenResty 返回 204 并不能证明证书链没问题，这是误报）；
+- 每次运行都重启容器（即使内容没变）；
+- 没有 OpenResty reload 这一步 —— 也就是 2026-10-03 故障里缺失的那一环。
+
+建议二选一（在 1Panel 面板里改：1Panel -> 计划任务 -> derper证书）：
+
+1. 把命令改成 `bash /opt/derper-cert-sync/derper-cert-sync.sh`（幂等：没变化就秒退），保留这层冗余；
+2. 或者直接停用/删除该任务，交给 systemd timer（每 15 分钟一次，且有哈希跳过与两道校验）。
+
+## 历史
+
+- `sync_derper_cert.sh`：2026-09-16 版（复制 + 校验 + 每次重启，带 `--dry-run`、备份目录、锁目录）。**已废弃**，保留作参考；服务器上仍以 1Panel 计划任务的形式运行（见上一节）。
+- `derper-cert-reload.sh`（`/root/derper-cert-reload.sh`）：更早的 acme.sh 续期钩子方案，在 1Panel 接管签发后已退役为占位说明。
+
+## 故障记录
+
+- 2026-09-30 03:02 UTC：`lipiston.eu.org` 通配符证书过期（OpenResty 与 derper 共用），DERP 全挂；`tailscale netcheck` 只测 STUN，表现为“能连但坏”，容易误判。
+- 2026-10-03：改用 1Panel 新签的 `derper.lipiston.eu.org` 证书（notAfter 2027-01-01）；补上 OpenResty reload 与哈希跳过逻辑，收敛成现在这份脚本 + systemd timer。

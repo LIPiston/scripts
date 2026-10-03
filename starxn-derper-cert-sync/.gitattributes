@@ -1,0 +1,5 @@
+# 这些文件要原样 scp 到 Linux，必须保持 LF，否则脚本会因 \r 报 bad interpreter
+*.sh text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+*.md text eol=lf
