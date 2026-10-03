@@ -86,13 +86,20 @@ ssh starxn 'curl -sS -o /dev/null -w "%{http_code}\n" https://derper.lipiston.eu
 ssh starxn 'journalctl -u tailscaled --since "5 min ago" --no-pager | grep -i derp'
 ```
 
-端到端演练（安全、可重复）：把 `data/` 里的证书换成另一份旧证书，跑一次脚本，看是否被自动纠正并 reload：
+端到端演练（自包含，不依赖任何历史文件）：造一份假的"旧证书"放进容器目录，跑一次脚本，看它是否自动纠正并 reload：
 
 ```bash
-ssh starxn 'D=/opt/1panel/docker/compose/tailscale-derper/data; \
-  cp -a "$D/lipiston.eu.org.crt" "$D/derper.lipiston.eu.org.crt"; \
-  /opt/derper-cert-sync/derper-cert-sync.sh; tail -2 /var/log/derper-cert-sync.log'
+ssh starxn 'D=/opt/1panel/docker/compose/tailscale-derper/data
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=drill" \
+    -keyout /tmp/drill.key -out /tmp/drill.crt >/dev/null 2>&1
+  cp -a "$D/derper.lipiston.eu.org.crt" /tmp/real.crt          # 失败时的退路
+  install -m 644 /tmp/drill.crt "$D/derper.lipiston.eu.org.crt"
+  /opt/derper-cert-sync/derper-cert-sync.sh
+  tail -2 /var/log/derper-cert-sync.log
+  openssl x509 -in "$D/derper.lipiston.eu.org.crt" -noout -subject -enddate'
 ```
+
+期望：日志出现 `synced cert (...)`，末行 subject 变回 `CN = derper.lipiston.eu.org`；再 `curl ... /derp/probe` 应仍是 200。
 
 ## 回滚
 
@@ -127,3 +134,4 @@ ssh starxn 'D=/opt/1panel/docker/compose/tailscale-derper/data; \
 
 - 2026-09-30 03:02 UTC：`lipiston.eu.org` 通配符证书过期（OpenResty 与 derper 共用），DERP 全挂；`tailscale netcheck` 只测 STUN，表现为“能连但坏”，容易误判。
 - 2026-10-03：改用 1Panel 新签的 `derper.lipiston.eu.org` 证书（notAfter 2027-01-01）；补上 OpenResty reload 与哈希跳过逻辑，收敛成现在这份脚本 + systemd timer。
+- 2026-10-03 清理（已确认后执行）：删除 `data/lipiston.eu.org.{crt,key}`（过期通配符残留）与 `/root/.acme.sh/derper.lipiston.eu.org_ecc/`；保留 `/root/derper.crt.backup.1791024829` 作为回滚点。演练脚本已改为自包含（不依赖任何历史文件）。
