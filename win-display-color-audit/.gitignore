@@ -1,0 +1,3 @@
+patterns/
+__pycache__/
+*.pyc
