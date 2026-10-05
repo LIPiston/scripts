@@ -1,18 +1,34 @@
 # Win11 service tuning: gaming-first, keeps WSL2 working.
 # ASCII only on purpose - PowerShell 5.1 decodes BOM-less .ps1 with the ANSI codepage
 # (GBK here) and a mangled multibyte comment can swallow the following line.
+#
+# REVISED 2026-10-05 (1): DPS / WdiServiceHost / WdiSystemHost were REMOVED from the
+# disable list. Disabling the diagnostic chain silently kills the "battery usage"
+# graph in Settings > Power & battery (plus powercfg /energy, sleepstudy and WDI ETL
+# tracing). See README "Breakage found on 2026-10-05". Run
+# restore-diagnostic-chain.ps1 to put them back on a machine already trimmed.
+# REVISED 2026-10-05 (2): most entries are Windows inbox defaults that never start
+# anyway (Start=4 + State=1223 since first boot). Disabling them frees nothing, so
+# they are SKIPPED and reported instead of counted as a win. Pass
+# -IncludeInboxDefaults to force the old behaviour.
 [CmdletBinding()]
 param(
-    [switch]$WhatIf
+    [switch]$WhatIf,
+    [switch]$IncludeInboxDefaults
 )
 
 $Disable = @(
     'DiagTrack','dmwappushservice','WSAIFabricSvc','InventorySvc','DusmSvc','MapsBroker',
     'WMPNetworkSvc','PhoneSvc','SEMgrSvc','SmsRouter','WalletService','workfolderssvc',
     'RetailDemo','smphost','TieringEngineService','ALG','AxInstSV',
-    'DPS','WdiServiceHost','WdiSystemHost','lfsvc','TrkWks'
+    'lfsvc','TrkWks'
 )
 $Manual = @('BITS','WSearch')
+
+# Never disable: this chain is the service context for SRUM / Energy Estimation
+# attribution, WDI energy tracing and powercfg /energy. Disabling it empties the
+# battery-usage graph. All three are Manual (on demand) on a clean install.
+$NeverDisable = @('DPS','WdiServiceHost','WdiSystemHost')
 
 # Must stay startable - WSL2, devices, security, remote access.
 $Keep = @(
@@ -34,7 +50,7 @@ $rollback = Join-Path $ReportDir 'rollback-generated.ps1'
 # ---- self-elevate -------------------------------------------------------
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $admin) {
+if (-not $admin -and -not $WhatIf) {
     Write-Host 'Requesting administrator rights (UAC prompt)...'
     $argList = @('-NoProfile','-ExecutionPolicy','Bypass','-File',"`"$PSCommandPath`"")
     $p = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -Verb RunAs -Wait -PassThru
@@ -46,16 +62,27 @@ function To-StartupType([string]$m) {
     switch ($m) { 'Auto' { 'Automatic' } 'Manual' { 'Manual' } 'Disabled' { 'Disabled' } default { 'Manual' } }
 }
 
+# ---- guard: the lists must not contradict each other --------------------
+$clash = $Disable | Where-Object { $NeverDisable -contains $_ }
+if ($clash) { throw "Refusing to run: $($clash -join ', ') is on the never-disable list." }
+
 # ---- apply --------------------------------------------------------------
 $lines = @('# Win11 service tuning rollback - run as administrator')
-$rows  = @('Service|Before|After|StateNow')
+$rows  = @('Service|Before|After|StateNow|Note')
 
 foreach ($n in ($Disable + $Manual)) {
     $svc = Get-CimInstance Win32_Service -Filter "Name='$n'" -ErrorAction SilentlyContinue
-    if (-not $svc) { $rows += "$n|NOT_FOUND|-|-"; continue }
+    if (-not $svc) { $rows += "$n|NOT_FOUND|-|-|"; continue }
     $before = $svc.StartMode
     $want   = if ($Disable -contains $n) { 'Disabled' } else { 'Manual' }
-    if ($WhatIf) { $rows += "$n|$before|(WhatIf) $want|-"; continue }
+
+    # Already Disabled and Stopped = inbox default that never ran. Not a saving.
+    if (-not $IncludeInboxDefaults -and $before -eq 'Disabled' -and $svc.State -eq 'Stopped') {
+        $rows += "$n|$before|(skipped)|$($svc.State)|already disabled - no saving"
+        continue
+    }
+    if ($WhatIf) { $rows += "$n|$before|(WhatIf) $want|-|"; continue }
+
     try {
         if ($want -eq 'Disabled') {
             if ($svc.State -eq 'Running') { Stop-Service -Name $n -Force -ErrorAction Stop }
@@ -64,18 +91,24 @@ foreach ($n in ($Disable + $Manual)) {
             Set-Service -Name $n -StartupType Manual -ErrorAction Stop
         }
     } catch {
-        $rows += "$n|$before|ERROR: $($_.Exception.Message)|-"
+        $rows += "$n|$before|ERROR: $($_.Exception.Message)|-|"
         continue
     }
     $after = (Get-CimInstance Win32_Service -Filter "Name='$n'").StartMode
     $state = (Get-Service -Name $n -ErrorAction SilentlyContinue).Status
-    $rows += "$n|$before|$after|$state"
+    $rows += "$n|$before|$after|$state|"
     if ($before -ne $after) {
-        $lines += "Set-Service -Name $n -StartupType $(To-StartupType $before)"
+        $lines += "Set-Service -Name '$n' -StartupType $(To-StartupType $before)"
     }
 }
 
-# ---- verify the keep list ----------------------------------------------
+# ---- verify the never-disable + keep lists ------------------------------
+$rows += ''
+$rows += '=== NEVER DISABLE (must stay Manual or Automatic) ==='
+foreach ($n in $NeverDisable) {
+    $s = Get-CimInstance Win32_Service -Filter "Name='$n'" -ErrorAction SilentlyContinue
+    if ($s) { $rows += ("{0,-32} {1,-9} {2}" -f $n, $s.StartMode, $s.State) } else { $rows += "$n  MISSING" }
+}
 $rows += ''
 $rows += '=== KEEP LIST ==='
 foreach ($n in $Keep) {

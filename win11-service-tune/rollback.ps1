@@ -1,5 +1,11 @@
 # Rollback for the service changes applied on 2026-09-28.
 # Run as administrator. Only startup types are restored - nothing was deleted.
+#
+# REVISED 2026-10-05: DPS is restored to Manual, NOT Automatic. Manual is the
+# Windows inbox default (on-demand); the earlier Automatic line overstated what
+# had been changed. WdiServiceHost / WdiSystemHost were already Manual.
+# The 2026-10-05 diagnostic-chain fix (restore-diagnostic-chain.ps1) already put
+# all three at Manual, so this file is a no-op for them now.
 Set-Service -Name DiagTrack -StartupType Automatic
 Set-Service -Name dmwappushservice -StartupType Manual
 Set-Service -Name WSAIFabricSvc -StartupType Automatic
@@ -17,7 +23,7 @@ Set-Service -Name smphost -StartupType Manual
 Set-Service -Name TieringEngineService -StartupType Manual
 Set-Service -Name ALG -StartupType Manual
 Set-Service -Name AxInstSV -StartupType Manual
-Set-Service -Name DPS -StartupType Automatic
+Set-Service -Name DPS -StartupType Manual
 Set-Service -Name WdiServiceHost -StartupType Manual
 Set-Service -Name WdiSystemHost -StartupType Manual
 Set-Service -Name lfsvc -StartupType Manual
