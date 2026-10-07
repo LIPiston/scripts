@@ -2,6 +2,11 @@
 # ASCII only on purpose - PowerShell 5.1 decodes BOM-less .ps1 with the ANSI codepage
 # (GBK here) and a mangled multibyte comment can swallow the following line.
 #
+# REVISED 2026-10-07: PhoneSvc / SmsRouter were REMOVED from the disable list.
+# Disabling PhoneSvc breaks Phone Link (Windows 11 "手机连接" / MicrosoftWindows.
+# CrossDevice) with "服务已关闭" - the app is fine, the service is what it calls.
+# Inbox default for both is Manual (trigger-started), so disabling them freed
+# nothing anyway. Run restore-phone-link.ps1 on a machine already trimmed.
 # REVISED 2026-10-05 (1): DPS / WdiServiceHost / WdiSystemHost were REMOVED from the
 # disable list. Disabling the diagnostic chain silently kills the "battery usage"
 # graph in Settings > Power & battery (plus powercfg /energy, sleepstudy and WDI ETL
@@ -19,7 +24,7 @@ param(
 
 $Disable = @(
     'DiagTrack','dmwappushservice','WSAIFabricSvc','InventorySvc','DusmSvc','MapsBroker',
-    'WMPNetworkSvc','PhoneSvc','SEMgrSvc','SmsRouter','WalletService','workfolderssvc',
+    'WMPNetworkSvc','SEMgrSvc','WalletService','workfolderssvc',
     'RetailDemo','smphost','TieringEngineService','ALG','AxInstSV',
     'lfsvc','TrkWks'
 )
@@ -28,7 +33,7 @@ $Manual = @('BITS','WSearch')
 # Never disable: this chain is the service context for SRUM / Energy Estimation
 # attribution, WDI energy tracing and powercfg /energy. Disabling it empties the
 # battery-usage graph. All three are Manual (on demand) on a clean install.
-$NeverDisable = @('DPS','WdiServiceHost','WdiSystemHost')
+$NeverDisable = @('DPS','WdiServiceHost','WdiSystemHost','PhoneSvc','SmsRouter')
 
 # Must stay startable - WSL2, devices, security, remote access.
 $Keep = @(
@@ -39,7 +44,9 @@ $Keep = @(
     'NVDisplay.ContainerLocalSystem','nvagent',
     'mpssvc','BFE','HipsDaemon','HRWSCCtrl',
     'sshd','ssh-agent','Tailscale','RustDesk',
-    'WbioSrvc','NcdAutoSetup','SharedAccess','SSDPSRV','fdPHost','FDResPub','GameViewerService'
+    'WbioSrvc','NcdAutoSetup','SharedAccess','SSDPSRV','fdPHost','FDResPub','GameViewerService',
+    # Phone Link / cross-device stack (Manual + trigger started is the inbox default)
+    'PhoneSvc','SmsRouter','CDPSvc','DevicesFlowUserSvc','BluetoothUserService','WpnService'
 )
 
 $ReportDir = Join-Path $PSScriptRoot 'out'

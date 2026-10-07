@@ -9,6 +9,7 @@
 |---|---|
 | `disable-services.ps1` | 精简脚本（自动提权、逐项回读、生成回滚脚本、校验保留清单）。2026-10-05 修订：已把诊断链移出禁用清单；已禁用的收件箱默认服务会被跳过并标注而非计为收益 |
 | `restore-diagnostic-chain.ps1` | **2026-10-05 修复脚本**：把 `DPS` / `WdiServiceHost` / `WdiSystemHost` 恢复到 Windows 默认的「手动（按需）」，修好空白的电池使用图表 |
+| `restore-phone-link.ps1` | **2026-10-07 修复脚本**：把 `PhoneSvc` / `SmsRouter` 恢复到「手动」并启动 `PhoneSvc`，修好被禁用的手机连接（Phone Link / 跨设备） |
 | `rollback.ps1` | 本机当前状态对应的精确回滚（只把启动类型改回去，不删服务） |
 | `wslconfig-game-first.txt` | `.wslconfig` 模板：把 WSL2 的内存让给游戏 |
 
@@ -41,17 +42,41 @@
 真正被削减的是**当时处于运行状态**的那些（`Print Spooler`、`WdiServiceHost`、
 `WdiSystemHost`、`whesvc` 等）。脚本现在会跳过已禁用的项并在报告里注明 `already disabled - no saving`。
 
+## 2026-10-07 发现的破坏：手机连接（Phone Link）用不了
+
+**症状**：打开「手机连接」（MicrosoftWindows.CrossDevice / Phone Link）提示服务已关闭，连不上手机，
+但应用本体完好（`Get-AppxPackage` 里 `MicrosoftWindows.CrossDevice 1.26072.116.0` 状态 `Ok`）。
+
+**原因**：2026-09-28 那批把 `PhoneSvc`（Phone Service，`PhoneserviceRes.dll`）禁用了。
+「手机连接」的所有跨设备能力（配对、通知、短信、通话、照片）都通过它调用，
+`Get-Service` 当时显示 `PhoneSvc = Stopped / Disabled`。同一批里 `SmsRouter`（SMS 路由服务）
+也被禁用，它负责手机侧短信/收发链路。
+
+**修复**：管理员运行 `restore-phone-link.ps1`，把两条恢复为 Windows 默认的「手动」并启动 `PhoneSvc`：
+
+```
+PhoneSvc|Disabled|Manual|Running
+SmsRouter|Disabled|Manual|Stopped
+```
+
+已验证：`TriggerInfo` 触发器键仍在（PhoneSvc 3 个、SmsRouter 2 个），
+支撑栈 `CDPSvc` / `DevicesFlowUserSvc` / `BluetoothUserService` / `bthserv` / `WpnService` 全部 Running。
+
+**教训**：手机连接是「手动 + 触发器」服务，本来就**不随开机自启**，禁用它换不到任何资源，
+但会直接废掉整个跨设备功能。这两条现在进了 `$NeverDisable`。
+
 ## 禁用清理（Start=4）
 
 ```
 DiagTrack            dmwappushservice   WSAIFabricSvc      InventorySvc
-DusmSvc              MapsBroker         WMPNetworkSvc      PhoneSvc
-SEMgrSvc             SmsRouter          WalletService      workfolderssvc
+DusmSvc              MapsBroker         WMPNetworkSvc
+SEMgrSvc             WalletService      workfolderssvc
 RetailDemo           smphost            TieringEngineService  ALG
 AxInstSV             lfsvc              TrkWks
 ```
 
-（`DPS` `WdiServiceHost` `WdiSystemHost` 已于 2026-10-05 移出此清单，见上。）
+（`DPS` `WdiServiceHost` `WdiSystemHost` 已于 2026-10-05 移出此清单；
+`PhoneSvc` `SmsRouter` 已于 2026-10-07 移出此清单，见上。）
 
 改为手动（不发车但不禁用）：`BITS`、`WSearch`
 
@@ -81,6 +106,7 @@ seclogon
 | 显卡 | `AMD External Events Utility`（FreeSync/VRR）、`AmdPpkgSvc` `amdpmfservice`、`NVDisplay.ContainerLocalSystem` `nvagent` | 掉帧/功能丢失 |
 | 安全 | `HipsDaemon` `HRWSCCtrl`（火绒）、`mpssvc` `BFE` | Defender 已被火绒接管，别关火绒 |
 | 远程/自用 | `sshd` `ssh-agent` `Tailscale` `RustDesk` | 用户在用 |
+| 手机连接 | `PhoneSvc` `SmsRouter` + 支撑栈 `CDPSvc` `DevicesFlowUserSvc` `BluetoothUserService` `WpnService` | 用户要用 Phone Link / 跨设备；2026-10-07 恢复 |
 | 按需保留 | `WbioSrvc`（Windows Hello 人脸，用户可能要用）、`NcdAutoSetup`（手机 USB 网络共享）、`SharedAccess`（移动热点）、`SSDPSRV` `fdPHost` `FDResPub`（局域网发现）、`GameViewerService`（远程协助他人） | 用户明确要求保留 |
 
 ## 回滚
@@ -105,6 +131,9 @@ Set-Service -Name <服务名> -StartupType Automatic   # 或 Manual
   服务上下文，禁掉会让「电池使用情况」图表变空，还会一起废掉 `powercfg /energy`、
   `sleepstudy` 和 WDI 的 ETL 跟踪。这三条本来就是「手动（按需）」，禁掉换不到资源
   （见上「2026-10-05 发现的破坏」）。
+- **不要动 `PhoneSvc` / `SmsRouter`**：手机连接（Phone Link / 跨设备）整条链路都走 `PhoneSvc`，
+  禁掉后应用会报「服务已关闭」，而应用本体、`TriggerInfo` 触发器都还在，很容易被误判成应用损坏
+  去重装 Appx。同样地它们本来就是「手动 + 触发器」，禁掉不省资源（见上「2026-10-07 发现的破坏」）。
 - **判断某个服务值不值得禁，看它现在是否在跑**，而不是看它叫什么名字：Windows 里有大量
   收件箱默认的 `Start=4` + `State=1223` 项，禁用它们等于什么也没做。
 - `disable-services.ps1` 的 `-WhatIf` **不会**把开关传给提权后的子进程；只想预演时不要用它
