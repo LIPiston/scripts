@@ -9,7 +9,7 @@
 |---|---|
 | `disable-services.ps1` | 精简脚本（自动提权、逐项回读、生成回滚脚本、校验保留清单）。2026-10-05 修订：已把诊断链移出禁用清单；已禁用的收件箱默认服务会被跳过并标注而非计为收益 |
 | `restore-diagnostic-chain.ps1` | **2026-10-05 修复脚本**：把 `DPS` / `WdiServiceHost` / `WdiSystemHost` 恢复到 Windows 默认的「手动（按需）」，修好空白的电池使用图表 |
-| `restore-phone-link.ps1` | **2026-10-07 修复脚本**：把 `PhoneSvc` / `SmsRouter` 恢复到「手动」并启动 `PhoneSvc`，修好被禁用的手机连接（Phone Link / 跨设备） |
+| `restore-phone-link.ps1` | **修复脚本**：把 `PhoneSvc` / `SmsRouter` 恢复到「手动」并启动 `PhoneSvc`。仅在**重装手机连接之后**用；应用本体已卸载时不要单独跑它（见「最终决定」） |
 | `rollback.ps1` | 本机当前状态对应的精确回滚（只把启动类型改回去，不删服务） |
 | `wslconfig-game-first.txt` | `.wslconfig` 模板：把 WSL2 的内存让给游戏 |
 
@@ -63,20 +63,61 @@ SmsRouter|Disabled|Manual|Stopped
 支撑栈 `CDPSvc` / `DevicesFlowUserSvc` / `BluetoothUserService` / `bthserv` / `WpnService` 全部 Running。
 
 **教训**：手机连接是「手动 + 触发器」服务，本来就**不随开机自启**，禁用它换不到任何资源，
-但会直接废掉整个跨设备功能。这两条现在进了 `$NeverDisable`。
+但会直接废掉整个跨设备功能。**服务与 Appx 必须一起处理**——只恢复服务，应用可能仍是坏的
+（见下面「最终决定」）。
+
+## 2026-10-07 最终决定：手机连接整个移除
+
+修好之后确认手机（OnePlus 7）侧不支持「连接至 Windows」的完整功能，用户决定彻底不用，
+于是**服务禁用与 Appx 卸载一起做**（单独禁用服务会留下约 479MB 无用的 Appx）。
+
+禁用：
+```
+PhoneSvc    Manual -> Disabled   (Stopped)
+SmsRouter   Manual -> Disabled   (Stopped)
+```
+（`SEMgrSvc`、`WalletService` 本来就是 Disabled，未动。）
+
+卸载（提权，全部实测成功）：
+```powershell
+Get-Process | Where-Object { $_.Name -match 'CrossDevice|PhoneExperience|YourPhone' } |
+  Stop-Process -Force
+Get-AppxPackage -AllUsers -Name Microsoft.YourPhone          | Remove-AppxPackage -AllUsers
+Get-AppxPackage -AllUsers -Name MicrosoftWindows.CrossDevice | Remove-AppxPackage -AllUsers
+Remove-AppxProvisionedPackage -Online -PackageName <...>     # 当时已无预置副本，跳过
+```
+回收 **478.7 MB**（YourPhone 373.3 + CrossDevice 103.5），用户数据目录
+（`%LOCALAPPDATA%\Packages\` 下两个）由卸载自动清除。验证：`Get-AppxPackage -AllUsers` 已无匹配、
+开始菜单无条目、`PhoneExperienceHost` / `CrossDeviceService` 进程不再出现。
+
+**两个包必须分清（这是当时排查慢的根因）**：
+
+| 包 | 作用 | 可卸载 | 说明 |
+|---|---|---|---|
+| `Microsoft.YourPhone` | 可见应用，`PhoneExperienceHost.exe`，AUMID `Microsoft.YourPhone_8wekyb3d8bbwe!App` | 是 | 开始菜单里那个「手机连接」 |
+| `MicrosoftWindows.CrossDevice` | 跨设备后端（`CrossDeviceService` 等 5 个 exe，全部 `AppListEntry="none"`） | 是（`NonRemovable=False`） | **从不显示在开始菜单**，别以为它没装 |
+
+`C:\Windows\SystemApps\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\CrossDeviceResume.exe` 属 Windows
+外壳自身，卸载包不影响它，也不需要处理。
+
+**卸载后的残留显示**：设置里「蓝牙和设备 → 移动设备」入口可能仍在（外壳提供），点开无内容，属正常。
+
+**要恢复的话**：服务用 `restore-phone-link.ps1`，应用用
+`winget install --id 9NMPJ99VJBWV --source msstore`（无需浏览器/登录）。两条都要做。
 
 ## 禁用清理（Start=4）
 
 ```
 DiagTrack            dmwappushservice   WSAIFabricSvc      InventorySvc
-DusmSvc              MapsBroker         WMPNetworkSvc
-SEMgrSvc             WalletService      workfolderssvc
+DusmSvc              MapsBroker         WMPNetworkSvc      PhoneSvc
+SEMgrSvc             SmsRouter          WalletService      workfolderssvc
 RetailDemo           smphost            TieringEngineService  ALG
 AxInstSV             lfsvc              TrkWks
 ```
 
-（`DPS` `WdiServiceHost` `WdiSystemHost` 已于 2026-10-05 移出此清单；
-`PhoneSvc` `SmsRouter` 已于 2026-10-07 移出此清单，见上。）
+（`DPS` `WdiServiceHost` `WdiSystemHost` 已于 2026-10-05 移出此清单。
+`PhoneSvc` `SmsRouter` 于 2026-10-07 先移出、同日最终决定移回 —— 因为应用本体被卸载了，
+见上「最终决定」。）
 
 改为手动（不发车但不禁用）：`BITS`、`WSearch`
 
@@ -106,8 +147,9 @@ seclogon
 | 显卡 | `AMD External Events Utility`（FreeSync/VRR）、`AmdPpkgSvc` `amdpmfservice`、`NVDisplay.ContainerLocalSystem` `nvagent` | 掉帧/功能丢失 |
 | 安全 | `HipsDaemon` `HRWSCCtrl`（火绒）、`mpssvc` `BFE` | Defender 已被火绒接管，别关火绒 |
 | 远程/自用 | `sshd` `ssh-agent` `Tailscale` `RustDesk` | 用户在用 |
-| 手机连接 | `PhoneSvc` `SmsRouter` + 支撑栈 `CDPSvc` `DevicesFlowUserSvc` `BluetoothUserService` `WpnService` | 用户要用 Phone Link / 跨设备；2026-10-07 恢复 |
 | 按需保留 | `WbioSrvc`（Windows Hello 人脸，用户可能要用）、`NcdAutoSetup`（手机 USB 网络共享）、`SharedAccess`（移动热点）、`SSDPSRV` `fdPHost` `FDResPub`（局域网发现）、`GameViewerService`（远程协助他人） | 用户明确要求保留 |
+
+（`PhoneSvc` `SmsRouter` 曾在本表「手机连接」一行，2026-10-07 应用卸载后已撤出该表并回到禁用清单。）
 
 ## 回滚
 

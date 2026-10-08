@@ -1,6 +1,10 @@
 # Rollback for the service changes applied on 2026-09-28.
 # Run as administrator. Only startup types are restored - nothing was deleted.
 #
+# REVISED 2026-10-07 (FINAL): PhoneSvc / SmsRouter were DISABLED again together with
+# the Phone Link uninstall - see the README section "2026-10-07 最终决定".
+# Restoring the services alone is NOT enough to get the app back; reinstall it first:
+#   winget install --id 9NMPJ99VJBWV --source msstore
 # REVISED 2026-10-05: DPS is restored to Manual, NOT Automatic. Manual is the
 # Windows inbox default (on-demand); the earlier Automatic line overstated what
 # had been changed. WdiServiceHost / WdiSystemHost were already Manual.

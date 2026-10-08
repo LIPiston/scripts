@@ -2,11 +2,18 @@
 # ASCII only on purpose - PowerShell 5.1 decodes BOM-less .ps1 with the ANSI codepage
 # (GBK here) and a mangled multibyte comment can swallow the following line.
 #
-# REVISED 2026-10-07: PhoneSvc / SmsRouter were REMOVED from the disable list.
-# Disabling PhoneSvc breaks Phone Link (Windows 11 "手机连接" / MicrosoftWindows.
-# CrossDevice) with "服务已关闭" - the app is fine, the service is what it calls.
-# Inbox default for both is Manual (trigger-started), so disabling them freed
-# nothing anyway. Run restore-phone-link.ps1 on a machine already trimmed.
+# REVISED 2026-10-07 (FINAL): PhoneSvc / SmsRouter are BACK on the disable list, because
+# the Phone Link app itself was removed. The two changes must go together - see
+# references/phone-link-repair.md:
+#   * Phone Link installed  -> PhoneSvc/SmsRouter MUST be Manual, or the app reports
+#     "service is turned off" and looks broken.
+#   * Phone Link removed    -> disable both (they are Manual + trigger-started, so the
+#     only thing keeping them off is this setting) AND uninstall the packages:
+#       Get-AppxPackage -AllUsers -Name Microsoft.YourPhone | Remove-AppxPackage -AllUsers
+#       Get-AppxPackage -AllUsers -Name MicrosoftWindows.CrossDevice | Remove-AppxPackage -AllUsers
+#     Disabling the services alone leaves ~479 MB of inert Appx on disk.
+# An earlier revision of this file removed both from the list while the app was still
+# installed; that was reverted by the same day's final decision.
 # REVISED 2026-10-05 (1): DPS / WdiServiceHost / WdiSystemHost were REMOVED from the
 # disable list. Disabling the diagnostic chain silently kills the "battery usage"
 # graph in Settings > Power & battery (plus powercfg /energy, sleepstudy and WDI ETL
@@ -24,7 +31,7 @@ param(
 
 $Disable = @(
     'DiagTrack','dmwappushservice','WSAIFabricSvc','InventorySvc','DusmSvc','MapsBroker',
-    'WMPNetworkSvc','SEMgrSvc','WalletService','workfolderssvc',
+    'WMPNetworkSvc','PhoneSvc','SEMgrSvc','SmsRouter','WalletService','workfolderssvc',
     'RetailDemo','smphost','TieringEngineService','ALG','AxInstSV',
     'lfsvc','TrkWks'
 )
@@ -33,7 +40,7 @@ $Manual = @('BITS','WSearch')
 # Never disable: this chain is the service context for SRUM / Energy Estimation
 # attribution, WDI energy tracing and powercfg /energy. Disabling it empties the
 # battery-usage graph. All three are Manual (on demand) on a clean install.
-$NeverDisable = @('DPS','WdiServiceHost','WdiSystemHost','PhoneSvc','SmsRouter')
+$NeverDisable = @('DPS','WdiServiceHost','WdiSystemHost')
 
 # Must stay startable - WSL2, devices, security, remote access.
 $Keep = @(
@@ -44,10 +51,12 @@ $Keep = @(
     'NVDisplay.ContainerLocalSystem','nvagent',
     'mpssvc','BFE','HipsDaemon','HRWSCCtrl',
     'sshd','ssh-agent','Tailscale','RustDesk',
-    'WbioSrvc','NcdAutoSetup','SharedAccess','SSDPSRV','fdPHost','FDResPub','GameViewerService',
-    # Phone Link / cross-device stack (Manual + trigger started is the inbox default)
-    'PhoneSvc','SmsRouter','CDPSvc','DevicesFlowUserSvc','BluetoothUserService','WpnService'
+    'WbioSrvc','NcdAutoSetup','SharedAccess','SSDPSRV','fdPHost','FDResPub','GameViewerService'
 )
+# NOTE: PhoneSvc / SmsRouter are deliberately NOT in $Keep. They are in $Disable because
+# the Phone Link app was uninstalled on 2026-10-07. If you reinstall Phone Link
+# (winget install --id 9NMPJ99VJBWV --source msstore), move them to $Keep or Microsoft.YourPhone
+# will report "service is turned off". See the header and references/phone-link-repair.md.
 
 $ReportDir = Join-Path $PSScriptRoot 'out'
 if (-not (Test-Path $ReportDir)) { New-Item -ItemType Directory -Path $ReportDir | Out-Null }
